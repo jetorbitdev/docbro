@@ -1,0 +1,21 @@
+:root{--bg:#f2f0ea;--surface:#fff;--surface2:#fbfaf7;--head:#f3f1ec;--hover:#eeece6;--soft:#efede7;--accent-soft:#e4eee8;--hl:#fbefb3;--hl-line:#e0c84a;--accent:#1f6b4a;--accent-h:#185a3e;--accent-ink:#1f6b4a;--line:#e2dfd6;--line2:#dcd9cf;--ink:#1d1f1c;--ink2:#4a4c46;--ink3:#5e6058;--muted:#7a7c74;--pill:#1d1f1c;--pill-ink:#f2f0ea;--pill-hover:#33352f;--t-blue-bg:#e6eff8;--t-blue:#2c5a86;--t-amber-bg:#f6ecdf;--t-amber:#8a5a1f;color-scheme:light}
+[data-theme=dark]{--bg:#121311;--surface:#1c1d1b;--surface2:#171816;--head:#232521;--hover:#2b2d29;--soft:#272925;--accent-soft:#1e3328;--hl:#45401f;--hl-line:#8f7d2c;--accent:#2a8159;--accent-h:#33925f;--accent-ink:#6cc196;--line:#2a2c28;--line2:#3a3c37;--ink:#ecebe5;--ink2:#c4c3bb;--ink3:#a8a89f;--muted:#8e8f87;--pill:#ecebe5;--pill-ink:#1d1f1c;--pill-hover:#d6d5ce;--t-blue-bg:#1d2a38;--t-blue:#8fb8e3;--t-amber-bg:#33281a;--t-amber:#e0b27a;color-scheme:dark}
+html,body{margin:0;height:100%;background:var(--bg);font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+a{color:var(--accent-ink);text-decoration:none}a:hover{color:var(--accent-h)}
+button,textarea{font-family:inherit}
+*{box-sizing:border-box}
+.doc{outline:none;font-size:17px;line-height:1.72;color:var(--ink);caret-color:var(--accent-ink)}
+.doc h1{font-family:'IBM Plex Sans',sans-serif;font-size:36px;line-height:1.12;letter-spacing:-.03em;font-weight:600;margin:0 0 .5em}
+.doc h2{font-family:'IBM Plex Sans',sans-serif;font-size:22px;line-height:1.3;letter-spacing:-.015em;font-weight:600;margin:1.8em 0 .5em}
+.doc h3{font-family:'IBM Plex Sans',sans-serif;font-size:17px;font-weight:600;margin:1.6em 0 .4em}
+.doc p{margin:0 0 1em}
+.doc ul,.doc ol{margin:0 0 1em;padding-left:1.4em}
+.doc li{margin:.25em 0;padding-left:.2em}
+.doc blockquote{margin:1.4em 0;padding:4px 0 4px 20px;border-left:2px solid var(--line2);font-style:italic;color:var(--ink2)}
+.doc hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.doc table{width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;line-height:1.4}
+.doc th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--head)}
+.doc td{padding:8px 10px;border-bottom:1px solid var(--line)}
+.doc mark{background:var(--hl);color:inherit;border-radius:2px;padding:0 1px}
+.doc mark[data-c]{box-shadow:inset 0 -2px 0 var(--hl-line);cursor:pointer}
+.doc ::selection{background:var(--accent-soft)}

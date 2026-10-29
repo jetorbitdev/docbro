@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- icon body -->
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="#1f6b4a"/>
+  <!-- page with a folded corner -->
+  <path d="M316 212 H594 L732 350 V764 A48 48 0 0 1 684 812 H316 A48 48 0 0 1 268 764 V260 A48 48 0 0 1 316 212 Z" fill="#ffffff"/>
+  <path d="M594 212 V302 A48 48 0 0 0 642 350 H732 Z" fill="#cfe0d7"/>
+  <!-- text lines -->
+  <g fill="#1f6b4a">
+    <rect x="340" y="430" width="240" height="30" rx="15" opacity="0.9"/>
+    <rect x="340" y="508" width="352" height="22" rx="11" opacity="0.45"/>
+    <rect x="340" y="574" width="352" height="22" rx="11" opacity="0.45"/>
+    <rect x="340" y="640" width="352" height="22" rx="11" opacity="0.45"/>
+    <rect x="340" y="706" width="220" height="22" rx="11" opacity="0.45"/>
+  </g>
+</svg>
