@@ -348,6 +348,28 @@ test("there_are_eight_text_colors_and_default_removes_the_color", () => {
   expect(editor.getAttributes("textStyle").color ?? null).toBeNull();
 });
 
+/** WCAG relative luminance of a `#rrggbb` color. */
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+test("text_colors_stay_readable_on_both_papers", () => {
+  // a color is stored as a fixed #rrggbb, so it has to read on the white page and on the dark theme's page (--surface)
+  const white = "#ffffff";
+  const dark = "#1c1d1b";
+  expect(luminance(white)).toBeCloseTo(1, 5);
+  expect(contrast(white, dark)).toBeGreaterThan(16);
+  for (const { name, value } of TEXT_COLORS) {
+    expect([name, contrast(value, white) >= 3]).toEqual([name, true]);
+    expect([name, contrast(value, dark) >= 3]).toEqual([name, true]);
+  }
+});
+
 // ------------------------------------------------------------------ urls
 
 test.each([

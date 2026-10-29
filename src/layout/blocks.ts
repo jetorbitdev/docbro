@@ -59,6 +59,34 @@ export function slashLine(state: EditorState): SlashLine | null {
   return query === null ? null : { query, pos: $from.before(), from: $from.start(), to: $from.end() };
 }
 
+/** What the open slash menu remembers about the command text under the caret. */
+export interface SlashMenuState {
+  pos: number;
+  query: string;
+  /** The highlighted row. */
+  index: number;
+  /** Esc closed the menu for this very text. */
+  dismissed: boolean;
+}
+
+export type SlashAction = { type: "move"; step: 1 | -1 } | { type: "hover"; index: number } | { type: "dismiss" };
+
+/**
+ * The menu's state after a transaction. It lasts only while the same command text stays under the
+ * caret: no slash line, a different paragraph or a different query starts over with the first row
+ * highlighted and the menu not dismissed (mock `checkSlash` resets `slashIdx` on every check).
+ */
+export function slashNext(prev: SlashMenuState | null, line: SlashLine | null, action?: SlashAction): SlashMenuState | null {
+  if (!line) return null;
+  const same = prev && prev.pos === line.pos && prev.query === line.query;
+  const state = same ? prev : { pos: line.pos, query: line.query, index: 0, dismissed: false };
+  const count = filterSlash(line.query).length;
+  if (!action || !count) return state;
+  if (action.type === "dismiss") return { ...state, dismissed: true };
+  if (action.type === "hover") return { ...state, index: Math.min(Math.max(action.index, 0), count - 1) };
+  return { ...state, index: (state.index + action.step + count) % count };
+}
+
 /** The slash text goes, then the block is applied to the empty line (mock `choose`). */
 export function chooseSlashItem(editor: Editor, key: BlockKey): void {
   const line = slashLine(editor.state);
@@ -257,16 +285,20 @@ export function applyLink(editor: Editor, input: string): boolean {
   return chain.extendMarkRange("link").setLink({ href }).run();
 }
 
-/** Eight text colors from the mock's tints (muted, amber, gold, accent and blue) in its tone, and the rest in the same register. */
+/**
+ * Eight text colors and, in the popover, Default. A color is saved as a fixed `#rrggbb`, so each is mid-luminance:
+ * at least 3:1 against both the white page and the dark theme's page (`--surface` #1c1d1b). Gray and Gold are the
+ * mock's own tokens (`--muted`, the dark `--hl-line`); the rest are hues in the same register at the same lightness.
+ */
 export const TEXT_COLORS: { name: string; value: string }[] = [
   { name: "Gray", value: "#7a7c74" },
-  { name: "Red", value: "#a8392d" },
-  { name: "Amber", value: "#8a5a1f" },
+  { name: "Red", value: "#d34f46" },
+  { name: "Amber", value: "#b9671e" },
   { name: "Gold", value: "#8f7d2c" },
-  { name: "Green", value: "#1f6b4a" },
-  { name: "Blue", value: "#2c5a86" },
-  { name: "Purple", value: "#6b4b8a" },
-  { name: "Pink", value: "#a0426b" },
+  { name: "Green", value: "#318c5e" },
+  { name: "Blue", value: "#357fc8" },
+  { name: "Purple", value: "#906cba" },
+  { name: "Pink", value: "#c65385" },
 ];
 
 /** A text color for the selection, or null for the default. */
