@@ -13,7 +13,13 @@ import {
 import { DocSession, type SessionIO } from "./doc/session";
 import { createHeadlessEditor } from "./editor/headless";
 import { UNKNOWN_FORMAT } from "./formats";
+import { pickImage } from "./layout/blocks";
 import type { UiState } from "./layout/viewport";
+
+vi.mock("./layout/blocks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./layout/blocks")>()),
+  pickImage: vi.fn(async () => {}),
+}));
 
 class MemoryIO implements SessionIO {
   files = new Map<string, Uint8Array>();
@@ -256,7 +262,7 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   const print = vi.spyOn(window, "print").mockImplementation(() => {});
   const ui = {} as UiState;
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette, shell });
-  expect(Object.keys(actions).sort()).toEqual(["newWindow", "open", "palette", "print", "save", "saveAs"]);
+  expect(Object.keys(actions).sort()).toEqual(["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs"]);
   actions.palette!();
   expect(openPalette).toHaveBeenCalledOnce();
   actions.print!();
@@ -264,4 +270,20 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   actions.newWindow!();
   expect(shell.openInWindow).toHaveBeenCalledWith(null);
   print.mockRestore();
+});
+
+test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
+  const ui = {} as UiState;
+  const openLink = vi.fn();
+  const openColor = vi.fn();
+  const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, openLink, openColor, shell: fakeShell() });
+  expect(Object.keys(actions).sort()).toEqual(
+    ["insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs"],
+  );
+  actions.insertImage!();
+  expect(pickImage).toHaveBeenCalledWith(editor);
+  actions.insertLink!();
+  expect(openLink).toHaveBeenCalledOnce();
+  actions.pickColor!();
+  expect(openColor).toHaveBeenCalledOnce();
 });

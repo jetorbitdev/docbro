@@ -1,4 +1,4 @@
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -120,6 +120,36 @@ test("format_commands_act_on_the_editor_selection", () => {
   expect(editor.isActive("bold")).toBe(false);
   byId(host(), "undo").run();
   expect(editor.isActive("bold")).toBe(true);
+});
+
+test("block_commands_pick_the_block_and_only_the_lists_toggle", () => {
+  editor.commands.setTextSelection(3);
+  byId(host(), "quote").run();
+  byId(host(), "quote").run(); // a menu picks the quote, it does not toggle it
+  expect(editor.isActive("blockquote")).toBe(true);
+  byId(host(), "text").run();
+  expect(editor.isActive("blockquote")).toBe(false);
+
+  byId(host(), "ul").run();
+  expect(editor.isActive("bulletList")).toBe(true);
+  byId(host(), "ul").run(); // the mock's list items toggle off
+  expect(editor.isActive("bulletList")).toBe(false);
+  byId(host(), "ol").run();
+  byId(host(), "ul").run(); // bullets replace numbers in place
+  expect(editor.isActive("bulletList")).toBe(true);
+  expect(editor.isActive("orderedList")).toBe(false);
+  byId(host(), "text").run();
+
+  // each block leaves the caret in an empty paragraph after it, where the next one goes
+  editor.commands.setTextSelection(editor.state.doc.firstChild!.nodeSize - 1); // the end of the line
+  byId(host(), "divider").run();
+  expect(editor.getJSON().content!.slice(0, 3).map((n) => n.type)).toEqual(["paragraph", "horizontalRule", "paragraph"]);
+  byId(host(), "table").run();
+  const doc = (editor.getJSON() as JSONContent).content!;
+  expect(doc.slice(0, 4).map((n) => n.type)).toEqual(["paragraph", "horizontalRule", "table", "paragraph"]);
+  expect(doc[2].content!.map((row) => row.content!.length)).toEqual([3, 3, 3]);
+  expect(doc[2].content![0].content![0].type).toBe("tableHeader");
+  expect(editor.state.selection.$from.parent).toBe(editor.state.doc.child(3));
 });
 
 test("view_toggles_patch_the_ui_and_show_their_state", () => {

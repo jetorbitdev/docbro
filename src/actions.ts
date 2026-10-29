@@ -4,6 +4,7 @@ import { api } from "./api";
 import type { CommandHost } from "./commands";
 import { LossyWriteError, type DocSession } from "./doc/session";
 import { formatOf, UNKNOWN_FORMAT } from "./formats";
+import { pickImage } from "./layout/blocks";
 import type { UiState } from "./layout/viewport";
 
 type Filter = { name: string; extensions: string[] };
@@ -140,12 +141,15 @@ export interface ActionDeps {
   ui: UiState;
   setUi(patch: Partial<UiState>): void;
   openPalette(): void;
+  /** Open the link field / the text color swatches; a command without its opener stays disabled. */
+  openLink?(): void;
+  openColor?(): void;
   shell?: Shell;
 }
 
-/** The actions behind the commands that need more than the editor. Tasks 8, 9, 13 and 14 add theirs here. */
+/** The actions behind the commands that need more than the editor. Tasks 9, 13 and 14 add theirs here. */
 export function buildActions(deps: ActionDeps): CommandHost["actions"] {
-  const { session, openPalette, shell = tauriShell } = deps;
+  const { editor, session, openPalette, openLink, openColor, shell = tauriShell } = deps;
   return {
     newWindow: () => void shell.openInWindow(null).catch(shell.showError),
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
@@ -153,5 +157,8 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     saveAs: () => void runExclusive(shell, () => saveAs(shell, session)),
     print: () => window.print(),
     palette: openPalette,
+    insertImage: () => void pickImage(editor),
+    ...(openLink && { insertLink: openLink }),
+    ...(openColor && { pickColor: openColor }),
   };
 }

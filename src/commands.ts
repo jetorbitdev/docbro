@@ -1,5 +1,6 @@
 import type { ChainedCommands, Editor } from "@tiptap/core";
 import type { DocSession } from "./doc/session";
+import { applyBlock, type BlockKey } from "./layout/blocks";
 import { toggleOutline, viewportLayout, type UiState } from "./layout/viewport";
 import { currentTheme, toggleTheme } from "./theme";
 
@@ -58,6 +59,8 @@ export function buildCommands(host: CommandHost): Command[] {
   // Editor commands focus the editor first, which brings back the selection a menu or the palette took focus from.
   const edit = (fn: (c: ChainedCommands) => ChainedCommands) => () => void fn(editor.chain().focus()).run();
   const flip = (key: keyof UiState) => () => setUi({ [key]: !ui[key] });
+  // A menu picks a block (Heading 2 on a Heading 2 stays); the lists are the mock's exception and toggle off, as the dock does.
+  const block = (key: BlockKey, force = true) => () => applyBlock(editor, key, force);
 
   return [
     cmd("new", "File", "□", "New", "⌘N", actions.newWindow),
@@ -83,22 +86,22 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("sans_font", "View", "a", "Sans-serif body", "", flip("sansFont"), ui.sansFont),
     cmd("palette", "View", "›", "Command palette…", "⌘K", actions.palette),
 
-    cmd("table", "Insert", "▦", "Table", "", edit((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))),
+    cmd("table", "Insert", "▦", "Table", "", block("table")),
     cmd("image", "Insert", "▣", "Image…", "", actions.insertImage),
     cmd("link", "Insert", "↗", "Link…", "⇧⌘K", actions.insertLink),
-    cmd("divider", "Insert", "—", "Divider", "", edit((c) => c.setHorizontalRule())),
+    cmd("divider", "Insert", "—", "Divider", "", block("hr")),
     cmd("comment", "Insert", "✎", "Comment on selection", "⌥⌘M", actions.addComment),
     cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null),
     cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null),
     cmd("page_numbers", "Insert", "#", "Page numbers", "", actions.togglePageNumbers, meta.pageNumbers),
 
-    cmd("text", "Format", "T", "Normal text", "⌥⌘0", edit((c) => c.setParagraph())),
-    cmd("h1", "Format", "H1", "Heading 1", "⌥⌘1", edit((c) => c.setHeading({ level: 1 }))),
-    cmd("h2", "Format", "H2", "Heading 2", "⌥⌘2", edit((c) => c.setHeading({ level: 2 }))),
-    cmd("h3", "Format", "H3", "Heading 3", "⌥⌘3", edit((c) => c.setHeading({ level: 3 }))),
-    cmd("quote", "Format", "“", "Quote", "", edit((c) => c.toggleBlockquote())),
-    cmd("ul", "Format", "•", "Bulleted list", "⇧⌘8", edit((c) => c.toggleBulletList())),
-    cmd("ol", "Format", "1.", "Numbered list", "⇧⌘7", edit((c) => c.toggleOrderedList())),
+    cmd("text", "Format", "T", "Normal text", "⌥⌘0", block("p")),
+    cmd("h1", "Format", "H1", "Heading 1", "⌥⌘1", block("h1")),
+    cmd("h2", "Format", "H2", "Heading 2", "⌥⌘2", block("h2")),
+    cmd("h3", "Format", "H3", "Heading 3", "⌥⌘3", block("h3")),
+    cmd("quote", "Format", "“", "Quote", "", block("blockquote")),
+    cmd("ul", "Format", "•", "Bulleted list", "⇧⌘8", block("ul", false)),
+    cmd("ol", "Format", "1.", "Numbered list", "⇧⌘7", block("ol", false)),
     cmd("bold", "Format", "B", "Bold", "⌘B", edit((c) => c.toggleBold())),
     cmd("italic", "Format", "I", "Italic", "⌘I", edit((c) => c.toggleItalic())),
     cmd("underline", "Format", "U", "Underline", "⌘U", edit((c) => c.toggleUnderline())),
