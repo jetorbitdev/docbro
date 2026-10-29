@@ -250,12 +250,15 @@ const LINK_SCHEMES = new Set(["http:", "https:", "mailto:"]);
  * A link address as typed, made safe to store: `http:`, `https:` and `mailto:` are kept, a bare
  * `example.com/x` gets `https://`, and everything else is null (an empty field, any other
  * scheme, whitespace or control characters anywhere, which browsers drop from a scheme).
+ * A bare address may not hold an `@` ("paypal.com@evil.com" is the user name "paypal.com" on
+ * evil.com) or start with a slash ("//evil.com"); write `mailto:` or the scheme to mean them.
  */
 export function normalizeUrl(input: string): string | null {
   const text = input.trim();
   if (!text || /[\s\u0000-\u001f\u007f-\u009f]/.test(text)) return null;
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(text);
   if (scheme && !LINK_SCHEMES.has(`${scheme[1].toLowerCase()}:`)) return null;
+  if (!scheme && /^[\\/]|@/.test(text)) return null;
   const address = scheme ? text : `https://${text}`;
   let url: URL;
   try {

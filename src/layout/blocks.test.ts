@@ -376,6 +376,11 @@ test.each([
   ["example.com/x", "https://example.com/x"],
   ["https://a.b", "https://a.b"],
   ["mailto:a@b.id", "mailto:a@b.id"],
+  // a bare address with an @ is a user name in front of the real host ("paypal.com@evil.com" goes to evil.com)
+  ["x@y.id", null],
+  ["paypal.com@evil.com", null],
+  // a protocol-relative address would become https:////evil.com
+  ["//evil.com", null],
   ["javascript:alert(1)", null],
   ["file:///etc/passwd", null],
   ["  ", null],
