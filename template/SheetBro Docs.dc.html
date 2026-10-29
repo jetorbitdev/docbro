@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f0ea;--surface:#fff;--surface2:#fbfaf7;--head:#f3f1ec;--hover:#eeece6;--soft:#efede7;--accent-soft:#e4eee8;--hl:#fbefb3;--hl-line:#e0c84a;--accent:#1f6b4a;--accent-h:#185a3e;--accent-ink:#1f6b4a;--line:#e2dfd6;--line2:#dcd9cf;--ink:#1d1f1c;--ink2:#4a4c46;--ink3:#5e6058;--muted:#7a7c74;--pill:#1d1f1c;--pill-ink:#f2f0ea;--pill-hover:#33352f;--t-blue-bg:#e6eff8;--t-blue:#2c5a86;--t-amber-bg:#f6ecdf;--t-amber:#8a5a1f;color-scheme:light}
+[data-theme=dark]{--bg:#121311;--surface:#1c1d1b;--surface2:#171816;--head:#232521;--hover:#2b2d29;--soft:#272925;--accent-soft:#1e3328;--hl:#45401f;--hl-line:#8f7d2c;--accent:#2a8159;--accent-h:#33925f;--accent-ink:#6cc196;--line:#2a2c28;--line2:#3a3c37;--ink:#ecebe5;--ink2:#c4c3bb;--ink3:#a8a89f;--muted:#8e8f87;--pill:#ecebe5;--pill-ink:#1d1f1c;--pill-hover:#d6d5ce;--t-blue-bg:#1d2a38;--t-blue:#8fb8e3;--t-amber-bg:#33281a;--t-amber:#e0b27a;color-scheme:dark}
+html,body{margin:0;height:100%;background:var(--bg);font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+a{color:var(--accent-ink);text-decoration:none}a:hover{color:var(--accent-h)}
+button,textarea{font-family:inherit}
+*{box-sizing:border-box}
+[data-doc]{outline:none;font-size:17px;line-height:1.72;color:var(--ink);caret-color:var(--accent-ink)}
+[data-doc] h1{font-family:'IBM Plex Sans',sans-serif;font-size:36px;line-height:1.12;letter-spacing:-.03em;font-weight:600;margin:0 0 .5em}
+[data-doc] h2{font-family:'IBM Plex Sans',sans-serif;font-size:22px;line-height:1.3;letter-spacing:-.015em;font-weight:600;margin:1.8em 0 .5em}
+[data-doc] h3{font-family:'IBM Plex Sans',sans-serif;font-size:17px;font-weight:600;margin:1.6em 0 .4em}
+[data-doc] p{margin:0 0 1em}
+[data-doc] ul,[data-doc] ol{margin:0 0 1em;padding-left:1.4em}
+[data-doc] li{margin:.25em 0;padding-left:.2em}
+[data-doc] blockquote{margin:1.4em 0;padding:4px 0 4px 20px;border-left:2px solid var(--line2);font-style:italic;color:var(--ink2)}
+[data-doc] hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+[data-doc] table{width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;line-height:1.4}
+[data-doc] th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--head)}
+[data-doc] td{padding:8px 10px;border-bottom:1px solid var(--line)}
+[data-doc] td:not(:first-child),[data-doc] th:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12.5px}
+[data-doc] mark{background:var(--hl);color:inherit;border-radius:2px;padding:0 1px}
+[data-doc] mark[data-c]{box-shadow:inset 0 -2px 0 var(--hl-line);cursor:pointer}
+[data-doc] ::selection{background:var(--accent-soft)}
+</style>
+<script>try{var t=localStorage.getItem('sheetbro-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=t}catch(e){}</script>
+</helmet>
+<div style="height:100vh;display:flex;flex-direction:column;background:var(--bg);overflow:hidden">
+
+  <header style="display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--surface2)">
+    <a href="SheetBro Landing.dc.html" title="SheetBro" style="width:28px;height:28px;border-radius:7px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">S</a>
+    <div style="display:flex;align-items:center;gap:8px;font-size:13.5px;min-width:0">
+      <span style="color:var(--muted);white-space:nowrap">Keyword research</span>
+      <span style="color:var(--line2)">/</span>
+      <span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ title }}</span>
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap;padding-left:6px">{{ saved }}</span>
+    </div>
+    <button onClick="{{ openPal }}" title="Search the menus (⌘K or ⌥/)" style="height:32px;padding:0 6px 0 10px;margin-left:8px;border:1px solid var(--line2);background:var(--surface);color:var(--muted);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:10px;flex-shrink:0" style-hover="border-color:var(--accent-ink)">
+      <span style="display:flex;align-items:center;gap:6px"><span style="font-size:14px">⌕</span>Search menus</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink3)">⌘K</span>
+    </button>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center">
+      <span title="Rina" style="width:28px;height:28px;border-radius:50%;background:var(--t-blue-bg);color:var(--t-blue);border:2px solid var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">R</span>
+      <span title="Budi" style="width:28px;height:28px;border-radius:50%;background:var(--t-amber-bg);color:var(--t-amber);border:2px solid var(--surface2);margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">B</span>
+      <span title="You" style="width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);border:2px solid var(--surface2);margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">Y</span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button onClick="{{ toggleFocus }}" title="Focus mode" style="height:32px;padding:0 12px;border:1px solid var(--line2);background:{{ focusBg }};color:var(--ink);border-radius:8px;font-size:13px;cursor:pointer" style-hover="background:var(--hover)">Focus</button>
+      <button onClick="{{ toggleChat }}" title="Assistant" style="height:32px;padding:0 12px;border:1px solid {{ chatBorder }};background:{{ chatBg }};color:var(--ink);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:7px" style-hover="background:var(--hover)"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent-ink)"></span>Assistant</button>
+      <button onClick="{{ toggleTheme }}" title="Toggle dark mode" aria-label="Toggle dark mode" style="width:32px;height:32px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:8px;cursor:pointer;font-size:15px" style-hover="background:var(--hover)">◐</button>
+      <button style="height:32px;padding:0 14px;border:0;background:var(--accent);color:#fff;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer" style-hover="background:var(--accent-h)">Share</button>
+    </div>
+  </header>
+
+  <sc-if value="{{ showMenuBar }}" hint-placeholder-val="{{ true }}">
+    <nav onMouseDown="{{ keep }}" style="display:flex;align-items:center;gap:4px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--surface2);position:relative;z-index:30;flex-wrap:wrap">
+      <sc-for list="{{ menus }}" as="m" hint-placeholder-count="5">
+        <div style="position:relative">
+          <button onClick="{{ m.toggle }}" onMouseEnter="{{ m.enter }}" style="height:40px;padding:0 16px;border:0;border-radius:8px;background:{{ m.bg }};color:var(--ink);font-size:16px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px" style-hover="background:var(--hover)">
+            <span style="font-size:15px;color:var(--accent-ink)">{{ m.icon }}</span>{{ m.name }}<span style="font-size:11px;color:var(--muted)">▾</span>
+          </button>
+          <sc-if value="{{ m.open }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:46px;left:0;min-width:320px;background:var(--surface);border:1px solid var(--line2);border-radius:12px;box-shadow:0 20px 50px -20px rgba(0,0,0,.35);padding:6px;display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ m.items }}" as="it" hint-placeholder-count="4">
+                <button onClick="{{ it.run }}" style="display:flex;align-items:center;gap:14px;min-height:48px;padding:0 14px;border:0;border-radius:8px;background:transparent;color:var(--ink);cursor:pointer;text-align:left;font-size:16px" style-hover="background:var(--hover)">
+                  <span style="width:26px;text-align:center;color:var(--ink3);font-size:15px;font-weight:600">{{ it.icon }}</span>
+                  <span style="flex:1">{{ it.label }}</span>
+                  <span style="font-size:13px;font-weight:600;color:var(--accent-ink)">{{ it.state }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--muted)">{{ it.keys }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <div style="flex:1"></div>
+      <button onClick="{{ toggleBig }}" title="Make text larger" style="height:40px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:{{ bigBg }};color:var(--ink);font-size:15px;cursor:pointer;display:flex;align-items:center;gap:8px" style-hover="background:var(--hover)"><span style="font-weight:600">A<span style="font-size:20px">A</span></span>Larger text</button>
+    </nav>
+  </sc-if>
+  <sc-if value="{{ menuOpenAny }}" hint-placeholder-val="{{ false }}">
+    <div onMouseDown="{{ closeMenu }}" style="position:fixed;inset:0;z-index:20"></div>
+  </sc-if>
+
+  <div style="flex:1;display:flex;min-height:0">
+
+    <sc-if value="{{ outlineRail }}" hint-placeholder-val="{{ false }}">
+      <div style="width:48px;flex-shrink:0;border-right:1px solid var(--line);background:var(--surface2);display:flex;flex-direction:column;align-items:center;padding-top:12px">
+        <button onClick="{{ toggleOutline }}" title="Show outline" aria-label="Show outline" style="width:36px;height:36px;border:1px solid var(--line2);border-radius:8px;background:var(--surface);color:var(--ink2);font-size:15px;cursor:pointer" style-hover="background:var(--hover)">☰</button>
+      </div>
+    </sc-if>
+    <sc-if value="{{ showOutline }}" hint-placeholder-val="{{ true }}">
+      <aside style="width:250px;flex-shrink:0;border-right:1px solid var(--line);background:var(--surface2);display:flex;flex-direction:column;overflow:auto">
+        <div style="padding:12px 8px 4px 16px;display:flex;align-items:center;gap:8px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);letter-spacing:.04em;flex:1">OUTLINE</span>
+          <button onClick="{{ toggleOutline }}" title="Hide outline" aria-label="Hide outline" style="width:32px;height:32px;border:0;border-radius:7px;background:transparent;color:var(--ink2);font-size:15px;cursor:pointer" style-hover="background:var(--hover)">«</button>
+        </div>
+        <nav style="display:flex;flex-direction:column;gap:1px;padding:0 8px">
+          <sc-for list="{{ outline }}" as="o" hint-placeholder-count="6">
+            <button onClick="{{ o.go }}" style="text-align:left;border:0;cursor:pointer;border-radius:6px;padding:6px 8px 6px {{ o.pad }};font-size:{{ o.size }};font-weight:{{ o.weight }};background:{{ o.bg }};color:{{ o.fg }};line-height:1.35" style-hover="background:var(--hover)">{{ o.text }}</button>
+          </sc-for>
+        </nav>
+        <div style="flex:1"></div>
+        <div style="padding:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ words }}</span><span style="font-size:11.5px;color:var(--muted)">Words</span></div>
+            <div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:18px;font-weight:600;letter-spacing:-.01em">{{ readTime }}</span><span style="font-size:11.5px;color:var(--muted)">Read time</span></div>
+          </div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);letter-spacing:.04em;padding-top:4px">LINKED SHEET</div>
+          <a href="Spreadsheet Revamp.dc.html" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)" style-hover="border-color:var(--accent-ink);color:var(--ink)">
+            <span style="width:22px;height:22px;border-radius:5px;background:var(--accent-soft);color:var(--accent-ink);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">▦</span>
+            <span style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">snap_phrase-match_us.xlsx</span>
+          </a>
+        </div>
+      </aside>
+    </sc-if>
+
+    <main style="flex:1;min-width:0;position:relative">
+      <div ref="{{ scrollRef }}" onScroll="{{ onScroll }}" style="position:absolute;inset:0;overflow:auto">
+        <div style="display:flex;justify-content:center;align-items:flex-start;gap:28px;padding:48px 24px 160px">
+
+          <div ref="{{ paperRef }}" style="position:relative;width:100%;max-width:780px;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:clamp(28px,7vw,80px) clamp(22px,7vw,84px) 96px">
+            <sc-if value="{{ headerOff }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ addHeader }}" style="position:absolute;left:0;right:0;top:0;height:clamp(28px,7vw,80px);border:0;border-bottom:1px dashed var(--line2);background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);transition:opacity .15s" style-hover="opacity:1">+ Add header</button>
+            </sc-if>
+            <sc-if value="{{ headerOn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;margin:calc(-1 * clamp(28px,7vw,80px) + 24px) 0 40px;padding-bottom:10px;border-bottom:1px dashed var(--line2);font-size:12.5px;color:var(--ink3)">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:var(--soft);color:var(--muted)">HEADER</span>
+                <div ref="{{ headerRef }}" contentEditable="true" spellCheck="false" style="flex:1;min-width:0;outline:none"></div>
+                <button onClick="{{ removeHeader }}" style="height:24px;padding:0 8px;border:0;background:transparent;color:var(--muted);border-radius:6px;font-size:11.5px;cursor:pointer" style-hover="background:var(--hover)">Remove</button>
+              </div>
+            </sc-if>
+            <div ref="{{ editorRef }}" data-doc="true" contentEditable="true" spellCheck="false" onInput="{{ onInput }}" onKeyDown="{{ onKeyDown }}" onClick="{{ onEditorClick }}" style="font-family:{{ docFont }};min-height:600px;zoom:{{ docZoom }}"></div>
+            <sc-if value="{{ footerOff }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ addFooter }}" style="position:absolute;left:0;right:0;bottom:0;height:80px;border:0;border-top:1px dashed var(--line2);background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);transition:opacity .15s" style-hover="opacity:1">+ Add footer</button>
+            </sc-if>
+            <sc-if value="{{ footerOn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;margin:48px 0 -64px;padding-top:10px;border-top:1px dashed var(--line2);font-size:12.5px;color:var(--ink3)">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:var(--soft);color:var(--muted)">FOOTER</span>
+                <div ref="{{ footerRef }}" contentEditable="true" spellCheck="false" style="flex:1;min-width:0;outline:none"></div>
+                <button onClick="{{ togglePageNums }}" title="Toggle page numbers" style="height:24px;padding:0 8px;border:1px solid var(--line2);background:{{ pnBg }};color:var(--ink2);border-radius:6px;font-size:11.5px;cursor:pointer;font-family:'IBM Plex Mono',monospace">{{ pnLabel }}</button>
+                <button onClick="{{ removeFooter }}" style="height:24px;padding:0 8px;border:0;background:transparent;color:var(--muted);border-radius:6px;font-size:11.5px;cursor:pointer" style-hover="background:var(--hover)">Remove</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ tbShow }}" hint-placeholder-val="{{ false }}">
+              <div onMouseDown="{{ keep }}" style="position:absolute;left:{{ tbLeft }};top:{{ tbTop }};transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;background:var(--pill);color:var(--pill-ink);border-radius:10px;box-shadow:0 8px 24px -8px rgba(0,0,0,.35);z-index:5;white-space:nowrap">
+                <button onClick="{{ fBold }}" style="width:30px;height:30px;border:0;border-radius:7px;background:{{ bBg }};color:inherit;font-weight:700;font-size:14px;cursor:pointer" style-hover="background:var(--pill-hover)">B</button>
+                <button onClick="{{ fItalic }}" style="width:30px;height:30px;border:0;border-radius:7px;background:{{ iBg }};color:inherit;font-style:italic;font-family:'IBM Plex Serif',serif;font-size:15px;cursor:pointer" style-hover="background:var(--pill-hover)">I</button>
+                <button onClick="{{ fUnder }}" style="width:30px;height:30px;border:0;border-radius:7px;background:{{ uBg }};color:inherit;text-decoration:underline;font-size:14px;cursor:pointer" style-hover="background:var(--pill-hover)">U</button>
+                <span style="width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px"></span>
+                <button onClick="{{ fH2 }}" style="height:30px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:var(--pill-hover)">H2</button>
+                <button onClick="{{ fQuote }}" style="height:30px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:16px;font-family:'IBM Plex Serif',serif;cursor:pointer" style-hover="background:var(--pill-hover)">“</button>
+                <button onClick="{{ fMark }}" title="Highlight" style="width:30px;height:30px;border:0;border-radius:7px;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--pill-hover)"><span style="width:14px;height:14px;border-radius:3px;background:#f3dc6b"></span></button>
+                <span style="width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px"></span>
+                <button onClick="{{ fComment }}" style="height:30px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:12.5px;cursor:pointer" style-hover="background:var(--pill-hover)">Comment</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ slashShow }}" hint-placeholder-val="{{ false }}">
+              <div onMouseDown="{{ keep }}" style="position:absolute;left:{{ slashLeft }};top:{{ slashTop }};width:280px;background:var(--surface);border:1px solid var(--line2);border-radius:12px;box-shadow:0 16px 40px -16px rgba(0,0,0,.3);padding:6px;z-index:6;display:flex;flex-direction:column;gap:1px">
+                <div style="padding:6px 10px 4px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ slashLabel }}</div>
+                <sc-for list="{{ slashItems }}" as="s" hint-placeholder-count="5">
+                  <button onClick="{{ s.pick }}" onMouseEnter="{{ s.hover }}" style="display:flex;align-items:center;gap:12px;padding:7px 10px;border:0;border-radius:8px;background:{{ s.bg }};color:var(--ink);cursor:pointer;text-align:left">
+                    <span style="width:30px;height:30px;border-radius:7px;border:1px solid var(--line2);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0;color:var(--ink2)">{{ s.icon }}</span>
+                    <span style="display:flex;flex-direction:column;min-width:0"><span style="font-size:13.5px;font-weight:500">{{ s.label }}</span><span style="font-size:12px;color:var(--muted)">{{ s.hint }}</span></span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ showComments }}" hint-placeholder-val="{{ true }}">
+            <div style="width:270px;flex-shrink:0;position:relative;align-self:stretch">
+              <sc-for list="{{ comments }}" as="c" hint-placeholder-count="2">
+                <div onMouseEnter="{{ c.enter }}" onMouseLeave="{{ c.leave }}" style="position:absolute;left:0;right:0;top:{{ c.top }};display:{{ c.display }};background:var(--surface);border:1px solid {{ c.border }};border-radius:10px;padding:12px;flex-direction:column;gap:8px;transition:top .2s,border-color .15s">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="width:24px;height:24px;border-radius:50%;background:{{ c.tint }};color:{{ c.ink }};font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">{{ c.initial }}</span>
+                    <span style="font-size:13px;font-weight:600">{{ c.who }}</span>
+                    <span style="font-size:12px;color:var(--muted)">{{ c.time }}</span>
+                    <div style="flex:1"></div>
+                    <button onClick="{{ c.resolve }}" title="Resolve" style="height:24px;padding:0 8px;border:1px solid var(--line2);background:transparent;color:var(--ink2);border-radius:6px;font-size:11.5px;cursor:pointer" style-hover="background:var(--hover)">Resolve</button>
+                  </div>
+                  <sc-if value="{{ c.editing }}" hint-placeholder-val="{{ false }}">
+                    <textarea ref="{{ c.taRef }}" value="{{ c.text }}" onChange="{{ c.edit }}" placeholder="Add a comment" rows="3" style="width:100%;resize:none;border:1px solid var(--line2);border-radius:7px;padding:8px;font-size:13px;line-height:1.45;background:var(--surface2);color:var(--ink);outline:none"></textarea>
+                    <button onClick="{{ c.done }}" style="align-self:flex-end;height:28px;padding:0 12px;border:0;background:var(--accent);color:#fff;border-radius:7px;font-size:12.5px;cursor:pointer">Post</button>
+                  </sc-if>
+                  <sc-if value="{{ c.viewing }}" hint-placeholder-val="{{ true }}">
+                    <p style="margin:0;font-size:13.5px;line-height:1.5;color:var(--ink2);text-wrap:pretty">{{ c.text }}</p>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div onMouseDown="{{ keep }}" style="position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;padding:5px;background:var(--surface);border:1px solid var(--line2);border-radius:14px;box-shadow:0 12px 32px -16px rgba(0,0,0,.3);max-width:calc(100% - 32px);overflow-x:auto;white-space:nowrap;z-index:4">
+        <div style="display:flex;gap:2px;padding:2px;background:var(--soft);border-radius:10px">
+          <sc-for list="{{ blockBtns }}" as="b" hint-placeholder-count="5">
+            <button onClick="{{ b.onClick }}" title="{{ b.title }}" style="height:30px;min-width:34px;padding:0 9px;border:0;border-radius:8px;background:{{ b.bg }};color:{{ b.fg }};box-shadow:{{ b.sh }};font-size:12.5px;font-weight:600;cursor:pointer">{{ b.label }}</button>
+          </sc-for>
+        </div>
+        <span style="width:1px;height:20px;background:var(--line2);margin:0 4px"></span>
+        <div style="display:flex;gap:2px">
+          <button onClick="{{ fBold }}" style="width:32px;height:32px;border:0;border-radius:8px;background:{{ dbBg }};color:var(--ink);font-weight:700;font-size:14px;cursor:pointer" style-hover="background:var(--hover)">B</button>
+          <button onClick="{{ fItalic }}" style="width:32px;height:32px;border:0;border-radius:8px;background:{{ diBg }};color:var(--ink);font-style:italic;font-family:'IBM Plex Serif',serif;font-size:15px;cursor:pointer" style-hover="background:var(--hover)">I</button>
+          <button onClick="{{ fUnder }}" style="width:32px;height:32px;border:0;border-radius:8px;background:{{ duBg }};color:var(--ink);text-decoration:underline;font-size:14px;cursor:pointer" style-hover="background:var(--hover)">U</button>
+          <button onClick="{{ fMark }}" title="Highlight" style="width:32px;height:32px;border:0;border-radius:8px;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:var(--hover)"><span style="width:14px;height:14px;border-radius:3px;background:#f3dc6b;border:1px solid var(--hl-line)"></span></button>
+        </div>
+        <span style="width:1px;height:20px;background:var(--line2);margin:0 4px"></span>
+        <button onClick="{{ fTable }}" title="Insert rows from the linked sheet" style="height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:6px" style-hover="background:var(--hover)"><span style="color:var(--accent-ink)">▦</span>Sheet range</button>
+        <button onClick="{{ fUndo }}" title="Undo" style="width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--ink2);font-size:15px;cursor:pointer" style-hover="background:var(--hover)">↶</button>
+        <button onClick="{{ fRedo }}" title="Redo" style="width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--ink2);font-size:15px;cursor:pointer" style-hover="background:var(--hover)">↷</button>
+        <span style="width:1px;height:20px;background:var(--line2);margin:0 4px"></span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);padding:0 8px 0 4px">Type / to insert</span>
+      </div>
+    </main>
+
+    <sc-if value="{{ chatOpen }}" hint-placeholder-val="{{ false }}">
+      <aside style="width:{{ chatW }};flex-shrink:0;border-left:1px solid var(--line);background:var(--surface2);display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 16px 10px">
+          <span style="font-size:16px;font-weight:600;letter-spacing:-.01em">Assistant</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)">MCP</span>
+          <div style="flex:1"></div>
+          <button onClick="{{ clearChat }}" title="New chat" style="height:30px;padding:0 10px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:13px;cursor:pointer" style-hover="background:var(--hover)">New</button>
+          <button onClick="{{ toggleChat }}" title="Close" aria-label="Close" style="width:30px;height:30px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:16px;cursor:pointer" style-hover="background:var(--hover)">×</button>
+        </div>
+
+        <div style="padding:0 16px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
+          <button onClick="{{ toggleServers }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:0;cursor:pointer;color:var(--ink2);font-size:13px">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--muted)">CONNECTED SERVERS</span>
+            <span style="font-size:12px;color:var(--accent-ink);font-weight:500">{{ serverCount }}</span>
+            <div style="flex:1"></div>
+            <span style="font-size:11px;color:var(--muted)">{{ serverArrow }}</span>
+          </button>
+          <sc-if value="{{ serversOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <sc-for list="{{ servers }}" as="s" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface)">
+                  <span style="width:28px;height:28px;border-radius:7px;background:{{ s.tint }};color:{{ s.ink }};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">{{ s.icon }}</span>
+                  <div style="display:flex;flex-direction:column;min-width:0;flex:1">
+                    <span style="font-size:13.5px;font-weight:500">{{ s.name }}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.meta }}</span>
+                  </div>
+                  <button onClick="{{ s.toggle }}" role="switch" aria-label="{{ s.name }}" style="width:36px;height:22px;border:0;border-radius:999px;background:{{ s.trackBg }};padding:2px;cursor:pointer;display:flex;justify-content:{{ s.justify }};flex-shrink:0;transition:background .15s"><span style="width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)"></span></button>
+                </div>
+              </sc-for>
+              <button style="height:34px;border:1px dashed var(--line2);background:transparent;color:var(--ink2);border-radius:9px;font-size:13px;cursor:pointer" style-hover="background:var(--hover)">+ Add MCP server</button>
+            </div>
+          </sc-if>
+        </div>
+
+        <div ref="{{ chatScrollRef }}" style="flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
+          <sc-if value="{{ chatEmpty }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+              <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink2)">Ask about this document or pull data from your connected servers.</p>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <sc-for list="{{ suggestions }}" as="q" hint-placeholder-count="3">
+                  <button onClick="{{ q.send }}" style="text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font-size:13.5px;line-height:1.4;cursor:pointer;display:flex;gap:10px;align-items:flex-start" style-hover="border-color:var(--accent-ink)">
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent-ink);padding-top:2px;white-space:nowrap">{{ q.tag }}</span>
+                    <span>{{ q.text }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-for list="{{ messages }}" as="m" hint-placeholder-count="1">
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:{{ m.align }}">
+              <sc-if value="{{ m.isUser }}" hint-placeholder-val="{{ false }}">
+                <div style="max-width:88%;padding:9px 13px;border-radius:12px 12px 4px 12px;background:var(--pill);color:var(--pill-ink);font-size:14px;line-height:1.5;white-space:pre-wrap">{{ m.text }}</div>
+              </sc-if>
+              <sc-if value="{{ m.isBot }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ m.tools }}" as="t" hint-placeholder-count="1">
+                  <div style="width:100%;border:1px solid var(--line);border-radius:9px;background:var(--surface);overflow:hidden">
+                    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px">
+                      <span style="width:18px;height:18px;border-radius:5px;background:{{ t.tint }};color:{{ t.ink }};display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700">{{ t.icon }}</span>
+                      <span style="font-family:'IBM Plex Mono',monospace;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">{{ t.server }} · <span style="color:var(--ink)">{{ t.name }}</span></span>
+                      <span style="font-size:11.5px;color:{{ t.stateColor }};white-space:nowrap">{{ t.stateLabel }}</span>
+                    </div>
+                    <div style="padding:6px 10px 8px 36px;border-top:1px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.args }}</div>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ m.thinking }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:13px;color:var(--muted);padding:2px 2px">Working…</div>
+                </sc-if>
+                <sc-if value="{{ m.hasText }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:14px;line-height:1.6;color:var(--ink);white-space:pre-wrap;text-wrap:pretty">{{ m.text }}</div>
+                  <div style="display:flex;gap:6px">
+                    <button onClick="{{ m.insert }}" style="height:28px;padding:0 10px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:7px;font-size:12.5px;cursor:pointer" style-hover="border-color:var(--accent-ink)">Insert into doc</button>
+                    <button onClick="{{ m.copy }}" style="height:28px;padding:0 10px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:12.5px;cursor:pointer" style-hover="background:var(--hover)">{{ m.copyLabel }}</button>
+                  </div>
+                </sc-if>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="padding:12px 16px 16px;border-top:1px solid var(--line)">
+          <div style="border:1px solid var(--line2);border-radius:12px;background:var(--surface);display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px 12px">
+            <sc-if value="{{ hasCtx }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);background:var(--hl);border-radius:6px;padding:3px 8px;align-self:flex-start;max-width:100%">
+                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">“{{ ctxText }}”</span>
+                <button onClick="{{ clearCtx }}" style="border:0;background:transparent;color:var(--ink2);cursor:pointer;font-size:13px;padding:0">×</button>
+              </div>
+            </sc-if>
+            <textarea value="{{ chatInput }}" onChange="{{ onChatInput }}" onKeyDown="{{ onChatKey }}" rows="2" placeholder="Ask, or type @ to pick a server" style="border:0;outline:0;resize:none;background:transparent;font-size:14px;line-height:1.5;color:var(--ink);padding:0"></textarea>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button onClick="{{ useSelection }}" title="Use selected text as context" style="height:28px;padding:0 9px;border:1px solid var(--line);background:transparent;color:var(--ink2);border-radius:7px;font-size:12px;cursor:pointer" style-hover="background:var(--hover)">+ Selection</button>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ toolsLabel }}</span>
+              <div style="flex:1"></div>
+              <button onClick="{{ sendChat }}" aria-label="Send" style="width:32px;height:32px;border:0;border-radius:8px;background:{{ sendBg }};color:#fff;font-size:15px;cursor:pointer">↑</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ palOpen }}" hint-placeholder-val="{{ false }}">
+    <div onMouseDown="{{ closePal }}" style="position:fixed;inset:0;background:rgba(10,12,10,.28);z-index:50;display:flex;justify-content:center;align-items:flex-start;padding-top:11vh">
+      <div onMouseDown="{{ stop }}" style="width:min(580px,calc(100% - 32px));max-height:72vh;background:var(--surface);border:1px solid var(--line2);border-radius:14px;box-shadow:0 30px 80px -30px rgba(0,0,0,.45);overflow:hidden;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)">
+          <span style="font-size:16px;color:var(--muted)">⌕</span>
+          <input ref="{{ palInputRef }}" value="{{ palQ }}" onChange="{{ onPalQ }}" onKeyDown="{{ onPalKey }}" placeholder="Search menus and commands" style="flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:15px;color:var(--ink);min-width:0">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink3)">esc</span>
+        </div>
+        <div style="display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--line);overflow-x:auto">
+          <sc-for list="{{ palTabs }}" as="t" hint-placeholder-count="6">
+            <button onClick="{{ t.onClick }}" style="height:28px;padding:0 11px;border:0;border-radius:7px;background:{{ t.bg }};color:{{ t.fg }};font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <div style="overflow:auto;padding:6px">
+          <sc-for list="{{ palGroups }}" as="g" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:1px;padding-bottom:6px">
+              <div style="padding:8px 10px 4px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:.04em">{{ g.name }}</div>
+              <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                <button onClick="{{ it.run }}" onMouseEnter="{{ it.hover }}" style="display:flex;align-items:center;gap:12px;padding:8px 10px;border:0;border-radius:8px;background:{{ it.bg }};color:var(--ink);cursor:pointer;text-align:left;font-size:13.5px">
+                  <span style="width:22px;text-align:center;color:var(--ink3);font-size:13px">{{ it.icon }}</span>
+                  <span style="flex:1">{{ it.label }}</span>
+                  <span style="font-size:11.5px;color:var(--accent-ink)">{{ it.state }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ it.keys }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-for>
+          <sc-if value="{{ palEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:28px 12px;text-align:center;font-size:13.5px;color:var(--muted)">No commands match.</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;docFont&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;serif&quot;,&quot;sans&quot;],&quot;default&quot;:&quot;serif&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;showMenuBar&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showOutline&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showComments&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  palInputRef = React.createRef();
+  headerRef = el => { if (el && !el.dataset.init) { el.dataset.init = 1; el.textContent = 'Q4 SNAP keyword brief · Internal'; } };
+  footerRef = el => { if (el && !el.dataset.init) { el.dataset.init = 1; el.textContent = 'SheetBro · Keyword research'; } };
+  onGlobalKey = e => {
+    if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') || (e.altKey && e.code === 'Slash')) { e.preventDefault(); this.openPal(); }
+    else if (e.key === 'Escape' && this.state.palOpen) this.closePal();
+  };
+  openPal = () => {
+    const s = getSelection(), ed = this.ed();
+    this.savedRange = s.rangeCount && ed.contains(s.anchorNode) ? s.getRangeAt(0).cloneRange() : null;
+    this.setState({ palOpen: true, palQ: '', palIdx: 0, palGroup: 'All', tb: null }, () => setTimeout(() => this.palInputRef.current && this.palInputRef.current.focus(), 20));
+  };
+  closePal = () => this.setState({ palOpen: false });
+  restore() {
+    const ed = this.ed(); ed.focus();
+    if (this.savedRange) { const s = getSelection(); s.removeAllRanges(); s.addRange(this.savedRange); }
+  }
+  pages() { const p = this.paperRef.current; return p ? Math.max(1, Math.ceil(p.offsetHeight / 1056)) : 1; }
+  cmds() {
+    const st = this.state, E = (fn) => () => { this.restore(); fn(); };
+    const fmt = c => E(() => { this.ex(c); this.onSel(); });
+    const on = v => v ? 'On' : '';
+    return [
+      ['File', '⎙', 'Print', '⌘P', () => window.print()],
+      ['File', '↓', 'Download as PDF', '', () => window.print()],
+      ['File', '▦', 'Open linked sheet', '', () => { location.href = 'Spreadsheet Revamp.dc.html'; }],
+      ['Edit', '↶', 'Undo', '⌘Z', E(() => { this.ex('undo'); this.onInput(); })],
+      ['Edit', '↷', 'Redo', '⇧⌘Z', E(() => { this.ex('redo'); this.onInput(); })],
+      ['Edit', '▢', 'Select all', '⌘A', E(() => this.ex('selectAll'))],
+      ['Edit', '⌫', 'Clear formatting', '⌘\\', E(() => { this.ex('removeFormat'); this.onInput(); })],
+      ['View', '◎', 'Focus mode', '', () => this.setState(s => ({ focus: !s.focus })), on(st.focus)],
+      ['View', '☰', 'Show outline', '', () => this.setState(s => ({ hideOutline: !s.hideOutline })), on(!st.hideOutline)],
+      ['View', '✎', 'Show comments', '', () => this.setState(s => ({ hideComments: !s.hideComments })), on(!st.hideComments)],
+      ['View', '✦', 'Assistant (MCP)', '', () => this.setState(s => ({ chatOpen: !s.chatOpen })), on(st.chatOpen)],
+      ['View', '◐', 'Dark mode', '', this.toggleTheme, on(document.documentElement.dataset.theme === 'dark')],
+      ['Insert', '▔', 'Header', '', () => this.setState(s => ({ headerOn: !s.headerOn })), on(st.headerOn)],
+      ['Insert', '▁', 'Footer', '', () => this.setState(s => ({ footerOn: !s.footerOn })), on(st.footerOn)],
+      ['Insert', '#', 'Page numbers', '', () => this.setState(s => ({ footerOn: true, pageNums: s.footerOn ? !s.pageNums : true })), on(st.footerOn && st.pageNums)],
+      ['Insert', '▦', 'Sheet range as table', '', E(() => this.apply('table', true))],
+      ['Insert', '—', 'Divider', '', E(() => this.apply('hr', true))],
+      ['Insert', '✎', 'Comment on selection', '⌥⌘M', E(() => this.addComment())],
+      ['Format', 'T', 'Normal text', '⌥⌘0', E(() => this.apply('p', true))],
+      ['Format', 'H1', 'Heading 1', '⌥⌘1', E(() => this.apply('h1', true))],
+      ['Format', 'H2', 'Heading 2', '⌥⌘2', E(() => this.apply('h2', true))],
+      ['Format', 'H3', 'Heading 3', '⌥⌘3', E(() => this.apply('h3', true))],
+      ['Format', '“', 'Quote', '', E(() => this.apply('blockquote', true))],
+      ['Format', '•', 'Bulleted list', '⇧⌘8', E(() => this.apply('ul'))],
+      ['Format', '1.', 'Numbered list', '⇧⌘7', E(() => this.apply('ol'))],
+      ['Format', 'B', 'Bold', '⌘B', fmt('bold')],
+      ['Format', 'I', 'Italic', '⌘I', fmt('italic')],
+      ['Format', 'U', 'Underline', '⌘U', fmt('underline')],
+      ['Format', '▮', 'Highlight', '', E(() => this.wrap())]
+    ].map(([group, icon, label, keys, fn, state]) => ({ group, icon, label, keys, fn, state: state || '' }));
+  }
+  palList() {
+    const q = this.state.palQ.toLowerCase().trim(), g = this.state.palGroup;
+    return this.cmds().filter(c => (g === 'All' || c.group === g) && (!q || (c.label + ' ' + c.group).toLowerCase().includes(q)));
+  }
+  runCmd(c) { this.setState({ palOpen: false }, () => { c.fn(); }); }
+  onPalKey = e => {
+    const list = this.palList();
+    if (e.key === 'ArrowDown') { e.preventDefault(); this.setState(s => ({ palIdx: (s.palIdx + 1) % Math.max(list.length, 1) })); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); this.setState(s => ({ palIdx: (s.palIdx - 1 + list.length) % Math.max(list.length, 1) })); }
+    else if (e.key === 'Enter') { e.preventDefault(); list[this.state.palIdx] && this.runCmd(list[this.state.palIdx]); }
+    else if (e.key === 'Escape') { e.preventDefault(); this.closePal(); }
+  };
+  chatScrollRef = React.createRef();
+  SERVERS = [
+    { id: 'sheets', name: 'SheetBro Sheets', icon: '▦', tint: 'var(--accent-soft)', ink: 'var(--accent-ink)', meta: 'read_range · write_range · list_sheets', on: true },
+    { id: 'docs', name: 'SheetBro Docs', icon: 'D', tint: 'var(--t-blue-bg)', ink: 'var(--t-blue)', meta: 'read_document · insert_block', on: true },
+    { id: 'github', name: 'GitHub', icon: 'GH', tint: 'var(--soft)', ink: 'var(--ink)', meta: 'jetorbitdev/sheetbro · list_issues', on: true },
+    { id: 'drive', name: 'Google Drive', icon: 'G', tint: 'var(--t-amber-bg)', ink: 'var(--t-amber)', meta: 'search_files · read_file', on: false }
+  ];
+  plan(q) {
+    const s = q.toLowerCase(), on = this.state.servers, t = [];
+    if (on.sheets && /sheet|keyword|volume|kd|cpc|table|data|row/.test(s)) t.push({ sid: 'sheets', name: 'read_range', args: '{ file: "snap_phrase-match_us.xlsx", range: "A17:I31" }' });
+    if (on.docs && /doc|summar|rewrite|section|brief|this|outline|selection/.test(s)) t.push({ sid: 'docs', name: 'read_document', args: '{ id: "q4-snap-brief", include: "headings,body" }' });
+    if (on.github && /github|issue|repo|bug|pull|pr\b/.test(s)) t.push({ sid: 'github', name: 'list_issues', args: '{ repo: "jetorbitdev/sheetbro", state: "open", limit: 5 }' });
+    if (on.drive && /drive|file|folder/.test(s)) t.push({ sid: 'drive', name: 'search_files', args: `{ query: "${q.slice(0, 30)}" }` });
+    if (!t.length && on.docs) t.push({ sid: 'docs', name: 'read_document', args: '{ id: "q4-snap-brief" }' });
+    return t;
+  }
+  fallback(q, tools) {
+    const ids = tools.map(t => t.sid);
+    if (ids.includes('sheets')) return 'Rows 17–31 cover 15 keywords. Total volume is 430 searches a month, average CPC is $1.95. Five keywords have a featured snippet and a KD score; the easiest is “what documents are needed for snap benefits” at KD 44.';
+    if (ids.includes('github')) return 'The repository has no open issues yet. Once issues are filed I can summarize them here or link them into the brief.';
+    return 'The brief has five sections: Summary, Priority keywords, Content plan, Measurement and Next steps. Summary in one line: the SNAP cluster is low-competition and informational, so one hub page plus short answer pages is the plan.';
+  }
+  async askModel(q, tools) {
+    const ed = this.ed(); const doc = ed ? ed.innerText.slice(0, 4000) : '';
+    if (!(window.claude && window.claude.complete)) return this.fallback(q, tools);
+    const sheet = this.TABLE.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const prompt = `You are the SheetBro assistant inside a document editor. Connected MCP tools were just called: ${tools.map(t => t.sid + '.' + t.name).join(', ') || 'none'}.\nDocument:\n${doc}\n\nSheet data (keyword, volume, KD, CPC): ${sheet}\n${this.state.ctx ? 'User selected: "' + this.state.ctx + '"\n' : ''}\nAnswer in plain text, under 120 words, no markdown headings.\nUser: ${q}`;
+    try { return (await window.claude.complete(prompt)).trim(); } catch (e) { return this.fallback(q, tools); }
+  }
+  scrollChat() { setTimeout(() => { const el = this.chatScrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, 30); }
+  send = async (text) => {
+    const q = (text ?? this.state.chatInput).trim(); if (!q || this.state.busy) return;
+    const tools = this.plan(q).map(t => ({ ...t, state: 'run' }));
+    const id = Date.now();
+    this.setState(s => ({ busy: true, chatInput: '', msgs: [...s.msgs, { id: id - 1, role: 'user', text: q }, { id, role: 'bot', tools, text: '' }] }), () => this.scrollChat());
+    const upd = fn => this.setState(s => ({ msgs: s.msgs.map(m => m.id === id ? fn(m) : m) }));
+    for (let i = 0; i < tools.length; i++) {
+      await new Promise(r => setTimeout(r, 550));
+      upd(m => ({ ...m, tools: m.tools.map((t, j) => j === i ? { ...t, state: 'done' } : t) }));
+    }
+    const ans = await this.askModel(q, tools);
+    upd(m => ({ ...m, text: ans }));
+    this.setState({ busy: false, ctx: '' }); this.scrollChat();
+  };
+  insertText(t) {
+    const ed = this.ed(); const p = document.createElement('p'); p.textContent = t;
+    const s = getSelection(); const b = s.rangeCount && ed.contains(s.anchorNode) ? this.blockOf(s.anchorNode) : null;
+    if (b && b.nodeType === 1) b.after(p); else ed.appendChild(p);
+    p.style.background = 'var(--accent-soft)'; setTimeout(() => { p.style.background = ''; }, 1200);
+    this.onInput();
+  }
+  state = { chatOpen: true, serversOpen: false, servers: { sheets: true, docs: true, github: true, drive: false }, msgs: [], chatInput: '', busy: false, ctx: '', copied: null, menu: null, big: false, chatOpen: typeof window !== 'undefined' ? window.innerWidth >= 1240 : true, palOpen: false, palQ: '', palIdx: 0, palGroup: 'All', headerOn: false, footerOn: false, pageNums: true, hideOutline: false, hideComments: false, outline: [], active: 0, words: 0, tb: null, slash: null, slashIdx: 0, block: 'p', fmt: {}, cpos: {}, saved: 'Saved', focus: false, w: 1400, hoverC: null, title: 'Q4 SNAP keyword brief',
+    comments: [
+      { id: 'c1', who: 'Rina', initial: 'R', tint: 'var(--t-blue-bg)', ink: 'var(--t-blue)', time: '2h', text: 'Should we list the combined volume for the cluster here? It makes the case stronger.' },
+      { id: 'c2', who: 'Budi', initial: 'B', tint: 'var(--t-amber-bg)', ink: 'var(--t-amber)', time: '40m', text: 'Agree, but flag the KD 100 keyword as a stretch goal.' }
+    ] };
+  editorRef = React.createRef(); scrollRef = React.createRef(); paperRef = React.createRef(); taRef = React.createRef();
+  SLASH = [
+    { k: 'p', label: 'Text', hint: 'Plain paragraph', icon: 'T' },
+    { k: 'h1', label: 'Heading 1', hint: 'Document title', icon: 'H1' },
+    { k: 'h2', label: 'Heading 2', hint: 'Section heading', icon: 'H2' },
+    { k: 'h3', label: 'Heading 3', hint: 'Subsection', icon: 'H3' },
+    { k: 'ul', label: 'Bulleted list', hint: 'Simple list', icon: '•' },
+    { k: 'ol', label: 'Numbered list', hint: 'Ordered steps', icon: '1.' },
+    { k: 'blockquote', label: 'Quote', hint: 'Pull a line out', icon: '“' },
+    { k: 'table', label: 'Sheet range', hint: 'Rows from the linked sheet', icon: '▦' },
+    { k: 'hr', label: 'Divider', hint: 'Horizontal rule', icon: '—' }
+  ];
+  TABLE = '<table><thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>CPC</th></tr></thead><tbody><tr><td>who do i call for snap benefits</td><td>20</td><td>79</td><td>1.96</td></tr><tr><td>what is snap benefits mean</td><td>50</td><td>100</td><td>1.98</td></tr><tr><td>how much is snap benefits for one person</td><td>20</td><td>72</td><td>1.78</td></tr><tr><td>is the snap program federal or state</td><td>20</td><td>73</td><td>1.76</td></tr><tr><td>what documents are needed for snap benefits</td><td>30</td><td>44</td><td>1.91</td></tr></tbody></table>';
+  DOC = () => `<h1>Q4 SNAP keyword brief</h1><p>This brief summarizes the phrase-match research for SNAP benefit queries in the US market, pulled from the October 6 export. It covers which keywords to target first, the content format each one needs, and what we will measure.</p><h2>Summary</h2><p>Most queries in the set are informational and low in competition. <mark data-c="c1">Volume is small per keyword, but the cluster as a whole is worth a dedicated hub page.</mark> CPC sits between $1.76 and $2.21, which suggests advertisers see some value even in how-to searches.</p><h2>Priority keywords</h2><p>We filtered for keywords with a difficulty score and a featured snippet in the SERP. These are the first five to brief out.</p>${this.TABLE}<p><mark data-c="c2">High-difficulty terms stay on the list because the snippet slot is still winnable with a direct answer.</mark></p><h2>Content plan</h2><ul><li>One hub page that answers what SNAP is and who qualifies.</li><li>Short answer pages for eligibility, documents, and contact numbers, each opening with a 40 to 60 word direct answer.</li><li>An FAQ block on the hub that mirrors the remaining questions.</li></ul><blockquote>Write each answer so it can be lifted into a featured snippet without editing.</blockquote><h2>Measurement</h2><p>Track rankings weekly for the five priority terms and monthly for the full set. Report snippet ownership alongside clicks, since many of these searches end on the results page.</p><h3>Next steps</h3><ol><li>Confirm the hub URL with the web team.</li><li>Draft the first two answer pages.</li><li>Re-pull the export in January to check trend changes.</li></ol>`;
+
+  componentDidMount() {
+    this.editorRef.current.innerHTML = this.DOC();
+    document.addEventListener('selectionchange', this.onSel);
+    window.addEventListener('resize', this.onResize);
+    window.addEventListener('keydown', this.onGlobalKey);
+    this.onResize();
+    this.sync();
+    document.fonts && document.fonts.ready.then(() => this.layoutComments());
+  }
+  componentWillUnmount() {
+    document.removeEventListener('selectionchange', this.onSel);
+    window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('keydown', this.onGlobalKey);
+    clearTimeout(this.saveT);
+  }
+  componentDidUpdate() {
+    const s = this.state, key = [s.focus, s.w, s.headerOn, s.hideComments, s.chatOpen, s.comments.length].join('|');
+    const changed = key !== this._layoutKey; this._layoutKey = key;
+    if (changed) requestAnimationFrame(() => this.layoutComments());
+    const ps = { comments: s.comments };
+    if (false && ps.comments.length !== this.state.comments.length) requestAnimationFrame(() => this.layoutComments());
+  }
+  onResize = () => this.setState({ w: window.innerWidth });
+  ed() { return this.editorRef.current; }
+  sync = () => {
+    const ed = this.ed(); if (!ed) return;
+    const hs = [...ed.querySelectorAll('h1,h2,h3')];
+    const words = (ed.innerText.match(/\S+/g) || []).length;
+    const h1 = ed.querySelector('h1');
+    this.setState({ outline: hs.map(h => ({ text: h.textContent.trim() || 'Untitled', level: +h.tagName[1] })), words, title: (h1 && h1.textContent.trim()) || 'Untitled document' });
+    this.layoutComments();
+  };
+  layoutComments = () => {
+    const ed = this.ed(), paper = this.paperRef.current; if (!ed || !paper) return;
+    const pr = paper.getBoundingClientRect(); let last = -1e9; const pos = {};
+    this.state.comments.forEach(c => {
+      const el = ed.querySelector(`[data-c="${c.id}"]`); if (!el) return;
+      let t = el.getBoundingClientRect().top - pr.top - 10;
+      t = Math.max(t, last + 12); pos[c.id] = t; last = t + (c.editing ? 170 : 118);
+    });
+    this.setState({ cpos: pos });
+  };
+  blockOf(n) { const ed = this.ed(); if (!n || n === ed) return null; while (n && n.parentNode !== ed) n = n.parentNode; return n; }
+  onSel = () => {
+    const ed = this.ed(), paper = this.paperRef.current; if (!ed || !paper) return;
+    const s = getSelection();
+    if (!s.rangeCount || !ed.contains(s.anchorNode)) { if (this.state.tb) this.setState({ tb: null }); return; }
+    this.savedSel = s.isCollapsed ? '' : s.toString();
+    const b = this.blockOf(s.anchorNode);
+    const block = b && b.nodeType === 1 ? b.tagName.toLowerCase() : 'p';
+    const fmt = { b: document.queryCommandState('bold'), i: document.queryCommandState('italic'), u: document.queryCommandState('underline') };
+    let tb = null;
+    if (!s.isCollapsed && s.toString().trim()) {
+      const r = s.getRangeAt(0).getBoundingClientRect(), pr = paper.getBoundingClientRect();
+      tb = { x: Math.min(Math.max(r.left + r.width / 2 - pr.left, 170), pr.width - 170), y: r.top - pr.top - 48 };
+    }
+    this.setState({ block, fmt, tb });
+  };
+  onInput = () => {
+    this.sync(); this.checkSlash();
+    this.setState({ saved: 'Saving…' }); clearTimeout(this.saveT);
+    this.saveT = setTimeout(() => this.setState({ saved: 'Saved' }), 700);
+  };
+  slashItems() {
+    const q = this.state.slash ? this.state.slash.q : '';
+    return this.SLASH.filter(o => !q || o.label.toLowerCase().includes(q) || o.k.includes(q));
+  }
+  checkSlash() {
+    const s = getSelection(), paper = this.paperRef.current;
+    const b = s.rangeCount ? this.blockOf(s.anchorNode) : null;
+    const text = b ? b.textContent : '';
+    if (b && /^\/[\w ]{0,20}$/.test(text)) {
+      const q = text.slice(1).toLowerCase().trim();
+      if (!this.SLASH.some(o => !q || o.label.toLowerCase().includes(q) || o.k.includes(q))) return this.setState({ slash: null });
+      const br = (b.nodeType === 1 ? b : b.parentNode).getBoundingClientRect(), pr = paper.getBoundingClientRect();
+      this.slashBlock = b;
+      this.setState({ slash: { x: br.left - pr.left, y: br.bottom - pr.top + 6, q }, slashIdx: 0 });
+    } else if (this.state.slash) this.setState({ slash: null });
+  }
+  onKeyDown = e => {
+    if (!this.state.slash) return;
+    const items = this.slashItems();
+    if (e.key === 'ArrowDown') { e.preventDefault(); this.setState(s => ({ slashIdx: (s.slashIdx + 1) % items.length })); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); this.setState(s => ({ slashIdx: (s.slashIdx - 1 + items.length) % items.length })); }
+    else if (e.key === 'Enter') { e.preventDefault(); items[this.state.slashIdx] && this.choose(items[this.state.slashIdx]); }
+    else if (e.key === 'Escape') { e.preventDefault(); this.setState({ slash: null }); }
+  };
+  choose(o) {
+    let b = this.slashBlock;
+    if (b) {
+      if (b.nodeType === 3) { const p = document.createElement('p'); b.replaceWith(p); b = p; }
+      b.innerHTML = '<br>';
+      const r = document.createRange(); r.setStart(b, 0); r.collapse(true);
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+    this.setState({ slash: null });
+    this.apply(o.k, true);
+  }
+  ensureFocus() { const ed = this.ed(); const s = getSelection(); if (!s.rangeCount || !ed.contains(s.anchorNode)) ed.focus(); }
+  ex(c, v) { document.execCommand(c, false, v); }
+  apply(k, force) {
+    this.ensureFocus();
+    if (['p', 'h1', 'h2', 'h3', 'blockquote'].includes(k)) this.ex('formatBlock', `<${!force && this.state.block === k ? 'p' : k}>`);
+    else if (k === 'ul') this.ex('insertUnorderedList');
+    else if (k === 'ol') this.ex('insertOrderedList');
+    else if (k === 'hr') this.ex('insertHTML', '<hr><p><br></p>');
+    else if (k === 'table') this.ex('insertHTML', this.TABLE + '<p><br></p>');
+    this.onInput(); this.onSel();
+  }
+  wrap(attrs) {
+    const s = getSelection(); if (!s.rangeCount || s.isCollapsed || !this.ed().contains(s.anchorNode)) return null;
+    const r = s.getRangeAt(0); const m = document.createElement('mark');
+    Object.entries(attrs || {}).forEach(([k, v]) => m.setAttribute(k, v));
+    m.appendChild(r.extractContents()); r.insertNode(m); s.removeAllRanges();
+    this.setState({ tb: null }); this.onInput();
+    return m;
+  }
+  addComment = () => {
+    const id = 'c' + Date.now();
+    if (!this.wrap({ 'data-c': id })) return;
+    this.setState(s => ({ comments: [...s.comments, { id, who: 'You', initial: 'Y', tint: 'var(--accent-soft)', ink: 'var(--accent-ink)', time: 'now', text: '', editing: true }] }),
+      () => { this.layoutComments(); setTimeout(() => this.taRef.current && this.taRef.current.focus(), 50); });
+  };
+  resolve(id) {
+    const el = this.ed().querySelector(`[data-c="${id}"]`);
+    if (el) { el.replaceWith(...el.childNodes); }
+    this.setState(s => ({ comments: s.comments.filter(c => c.id !== id) }), () => this.layoutComments());
+  }
+  markHover(id, on) {
+    const el = this.ed() && this.ed().querySelector(`[data-c="${id}"]`);
+    if (el) el.style.background = on ? 'var(--hl-line)' : '';
+    this.setState({ hoverC: on ? id : null });
+  }
+  goTo(i) {
+    const h = this.ed().querySelectorAll('h1,h2,h3')[i], sc = this.scrollRef.current; if (!h || !sc) return;
+    sc.scrollTo({ top: h.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 40, behavior: 'smooth' });
+  }
+  onScroll = () => {
+    const sc = this.scrollRef.current, ed = this.ed(); if (!sc || !ed) return;
+    const top = sc.getBoundingClientRect().top; let a = 0;
+    ed.querySelectorAll('h1,h2,h3').forEach((h, i) => { if (h.getBoundingClientRect().top - top < 140) a = i; });
+    if (a !== this.state.active) this.setState({ active: a });
+    if (this.state.tb) this.onSel();
+  };
+  toggleTheme = () => { const d = document.documentElement; const t = d.dataset.theme === 'dark' ? 'light' : 'dark'; d.dataset.theme = t; try { localStorage.setItem('sheetbro-theme', t); } catch (e) {} };
+
+  renderVals() {
+    const st = this.state;
+    const font = (this.props.docFont ?? 'serif') === 'serif' ? "'IBM Plex Serif', Georgia, serif" : "'IBM Plex Sans', system-ui, sans-serif";
+    const chatOpen = st.chatOpen && st.w >= 760;
+    const showOutline = !st.focus && !st.hideOutline && (st.forceOutline ? st.w >= 760 : st.w >= (chatOpen ? 1240 : 900)) && (this.props.showOutline ?? true);
+    const showComments = !st.focus && !st.hideComments && st.w >= (chatOpen ? 1560 : 1200) && (this.props.showComments ?? true);
+    const srv = this.SERVERS.map(s => ({ ...s, on: st.servers[s.id] }));
+    const byId = Object.fromEntries(srv.map(s => [s.id, s]));
+    const activeCount = srv.filter(s => s.on).length;
+    const chat = {
+      chatOpen, chatW: st.w < 1100 ? '320px' : '380px',
+      chatBg: st.chatOpen ? 'var(--accent-soft)' : 'var(--surface)', chatBorder: st.chatOpen ? 'var(--accent-ink)' : 'var(--line2)',
+      toggleChat: () => this.setState(s => ({ chatOpen: !s.chatOpen })),
+      clearChat: () => this.setState({ msgs: [], busy: false }),
+      serversOpen: st.serversOpen, toggleServers: () => this.setState(s => ({ serversOpen: !s.serversOpen })),
+      serverArrow: st.serversOpen ? '▴' : '▾', serverCount: `${activeCount} of ${srv.length} on`,
+      servers: srv.map(s => ({ ...s, trackBg: s.on ? 'var(--accent)' : 'var(--line2)', justify: s.on ? 'flex-end' : 'flex-start', toggle: () => this.setState(x => ({ servers: { ...x.servers, [s.id]: !x.servers[s.id] } })) })),
+      chatScrollRef: this.chatScrollRef, chatEmpty: !st.msgs.length,
+      suggestions: [['sheets', 'Summarize the keyword data in rows 17–31'], ['docs', 'Rewrite the Summary section in plain language'], ['github', 'Any open GitHub issues I should mention?']]
+        .map(([sid, text]) => ({ tag: '@' + sid, text, send: () => this.send(text) })),
+      messages: st.msgs.map(m => ({
+        align: m.role === 'user' ? 'flex-end' : 'stretch', isUser: m.role === 'user', isBot: m.role === 'bot', text: m.text,
+        hasText: m.role === 'bot' && !!m.text, thinking: m.role === 'bot' && !m.text,
+        tools: (m.tools || []).map(t => ({ ...t, server: byId[t.sid].name, icon: byId[t.sid].icon, tint: byId[t.sid].tint, ink: byId[t.sid].ink, stateLabel: t.state === 'done' ? '✓ Done' : 'Running…', stateColor: t.state === 'done' ? 'var(--accent-ink)' : 'var(--muted)' })),
+        insert: () => this.insertText(m.text),
+        copy: () => { navigator.clipboard && navigator.clipboard.writeText(m.text); this.setState({ copied: m.id }); setTimeout(() => this.setState({ copied: null }), 1200); },
+        copyLabel: st.copied === m.id ? 'Copied' : 'Copy'
+      })),
+      chatInput: st.chatInput, onChatInput: e => this.setState({ chatInput: e.target.value }),
+      onChatKey: e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); } },
+      sendChat: () => this.send(), sendBg: st.chatInput.trim() && !st.busy ? 'var(--accent)' : 'var(--line2)',
+      hasCtx: !!st.ctx, ctxText: st.ctx.length > 60 ? st.ctx.slice(0, 60) + '…' : st.ctx, clearCtx: () => this.setState({ ctx: '' }),
+      useSelection: () => { const t = (this.savedSel || '').trim() || getSelection().toString().trim(); if (t) this.setState({ ctx: t }); },
+      toolsLabel: `${activeCount} servers`
+    };
+    const pl = st.palOpen ? this.palList() : [];
+    const groups = [];
+    pl.forEach((c, i) => {
+      let g = groups.find(x => x.name === c.group.toUpperCase());
+      if (!g) groups.push(g = { name: c.group.toUpperCase(), items: [] });
+      g.items.push({ ...c, bg: i === st.palIdx ? 'var(--hover)' : 'transparent', run: () => this.runCmd(c), hover: () => this.setState({ palIdx: i }) });
+    });
+    const pal = {
+      palOpen: st.palOpen, palQ: st.palQ, palInputRef: this.palInputRef, palGroups: groups, palEmpty: st.palOpen && !pl.length,
+      openPal: this.openPal, closePal: this.closePal, stop: e => e.stopPropagation(), onPalKey: this.onPalKey,
+      onPalQ: e => this.setState({ palQ: e.target.value, palIdx: 0 }),
+      palTabs: ['All', 'File', 'Edit', 'View', 'Insert', 'Format'].map(l => ({ label: l, bg: st.palGroup === l ? 'var(--accent)' : 'transparent', fg: st.palGroup === l ? '#fff' : 'var(--ink2)', onClick: () => { this.setState({ palGroup: l, palIdx: 0 }); this.palInputRef.current && this.palInputRef.current.focus(); } })),
+      headerOn: st.headerOn, headerOff: !st.headerOn, footerOn: st.footerOn, footerOff: !st.footerOn,
+      headerRef: this.headerRef, footerRef: this.footerRef,
+      addHeader: () => this.setState({ headerOn: true }), removeHeader: () => this.setState({ headerOn: false }),
+      addFooter: () => this.setState({ footerOn: true }), removeFooter: () => this.setState({ footerOn: false }),
+      togglePageNums: () => this.setState(s => ({ pageNums: !s.pageNums })),
+      pnLabel: st.pageNums ? `Page 1 of ${this.pages()}` : '# Add page numbers', pnBg: st.pageNums ? 'var(--surface)' : 'transparent'
+    };
+    const items = this.slashItems();
+    const blk = st.block;
+    const blockBtns = [['p', 'Aa', 'Text'], ['h1', 'H1', 'Heading 1'], ['h2', 'H2', 'Heading 2'], ['blockquote', '“', 'Quote'], ['ul', '•', 'Bulleted list']].map(([k, label, title]) => {
+      const on = blk === k;
+      return { label, title, bg: on ? 'var(--surface)' : 'transparent', fg: on ? 'var(--ink)' : 'var(--ink3)', sh: on ? '0 1px 2px rgba(0,0,0,.12)' : 'none', onClick: () => this.apply(k) };
+    });
+    const onPill = 'var(--pill-hover)', onDock = 'var(--hover)';
+    const icons = { File: '▤', Edit: '✎', View: '◉', Insert: '+', Format: 'Aa' };
+    const all = this.cmds();
+    const menus = ['File', 'Edit', 'View', 'Insert', 'Format'].map(name => ({
+      name, icon: icons[name], open: st.menu === name, bg: st.menu === name ? 'var(--hover)' : 'transparent',
+      toggle: () => { if (st.menu !== name) { const s = getSelection(), ed = this.ed(); this.savedRange = s.rangeCount && ed.contains(s.anchorNode) ? s.getRangeAt(0).cloneRange() : null; } this.setState({ menu: st.menu === name ? null : name }); },
+      enter: () => { if (st.menu && st.menu !== name) this.setState({ menu: name }); },
+      items: all.filter(c => c.group === name).map(c => ({ ...c, run: () => this.setState({ menu: null }, () => c.fn()) }))
+    }));
+    const menuBar = {
+      showMenuBar: !st.focus && (this.props.showMenuBar ?? true), menus, menuOpenAny: !!st.menu,
+      closeMenu: () => this.setState({ menu: null }),
+      toggleBig: () => this.setState(s => ({ big: !s.big })), bigBg: st.big ? 'var(--accent-soft)' : 'var(--surface)',
+      docZoom: st.big ? 1.2 : 1
+    };
+    return {
+      ...pal, ...menuBar, ...chat,
+      title: st.title, saved: st.saved, words: st.words.toLocaleString('en-US'), readTime: Math.max(1, Math.round(st.words / 230)) + ' min',
+      showOutline, showComments, docFont: font,
+      outlineRail: !showOutline && !st.focus && st.w >= 760,
+      toggleOutline: () => this.setState(s => ({ hideOutline: !(s.hideOutline || !showOutline) ? true : false, forceOutline: !showOutline })),
+      focusBg: st.focus ? 'var(--accent-soft)' : 'var(--surface)',
+      toggleFocus: () => this.setState(s => ({ focus: !s.focus })),
+      toggleTheme: this.toggleTheme,
+      scrollRef: this.scrollRef, paperRef: this.paperRef, editorRef: this.editorRef,
+      onInput: this.onInput, onKeyDown: this.onKeyDown, onScroll: this.onScroll,
+      onEditorClick: e => { const m = e.target.closest && e.target.closest('mark[data-c]'); if (m) this.markHover(m.dataset.c, true), setTimeout(() => this.markHover(m.dataset.c, false), 900); },
+      keep: e => { if (e.target.tagName !== 'TEXTAREA') e.preventDefault(); },
+      outline: st.outline.map((o, i) => ({
+        text: o.text, pad: (8 + (o.level - 1) * 14) + 'px', size: o.level === 1 ? '13.5px' : '13px', weight: o.level === 1 ? 600 : 400,
+        bg: i === st.active ? 'var(--accent-soft)' : 'transparent', fg: i === st.active ? 'var(--accent-ink)' : (o.level === 3 ? 'var(--muted)' : 'var(--ink2)'),
+        go: () => this.goTo(i)
+      })),
+      tbShow: !!st.tb, tbLeft: st.tb ? st.tb.x + 'px' : '0', tbTop: st.tb ? st.tb.y + 'px' : '0',
+      bBg: st.fmt.b ? onPill : 'transparent', iBg: st.fmt.i ? onPill : 'transparent', uBg: st.fmt.u ? onPill : 'transparent',
+      dbBg: st.fmt.b ? onDock : 'transparent', diBg: st.fmt.i ? onDock : 'transparent', duBg: st.fmt.u ? onDock : 'transparent',
+      fBold: () => { this.ensureFocus(); this.ex('bold'); this.onSel(); }, fItalic: () => { this.ensureFocus(); this.ex('italic'); this.onSel(); }, fUnder: () => { this.ensureFocus(); this.ex('underline'); this.onSel(); },
+      fH2: () => this.apply('h2'), fQuote: () => this.apply('blockquote'), fMark: () => this.wrap(), fComment: this.addComment,
+      fTable: () => this.apply('table'), fUndo: () => { this.ensureFocus(); this.ex('undo'); this.onInput(); }, fRedo: () => { this.ensureFocus(); this.ex('redo'); this.onInput(); },
+      blockBtns,
+      slashShow: !!st.slash && items.length > 0, slashLeft: st.slash ? st.slash.x + 'px' : '0', slashTop: st.slash ? st.slash.y + 'px' : '0',
+      slashLabel: st.slash && st.slash.q ? `Blocks matching “${st.slash.q}”` : 'Insert block',
+      slashItems: items.map((o, i) => ({ ...o, bg: i === st.slashIdx ? 'var(--hover)' : 'transparent', pick: () => this.choose(o), hover: () => this.setState({ slashIdx: i }) })),
+      comments: st.comments.map(c => ({
+        ...c, top: (st.cpos[c.id] ?? 0) + 'px', display: st.cpos[c.id] == null ? 'none' : 'flex',
+        border: st.hoverC === c.id ? 'var(--hl-line)' : 'var(--line)', editing: !!c.editing, viewing: !c.editing, taRef: this.taRef,
+        enter: () => this.markHover(c.id, true), leave: () => this.markHover(c.id, false),
+        resolve: () => this.resolve(c.id),
+        edit: e => { const v = e.target.value; this.setState(s => ({ comments: s.comments.map(x => x.id === c.id ? { ...x, text: v } : x) })); },
+        done: () => { if (!c.text.trim()) return this.resolve(c.id); this.setState(s => ({ comments: s.comments.map(x => x.id === c.id ? { ...x, editing: false } : x) }), () => this.layoutComments()); }
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
