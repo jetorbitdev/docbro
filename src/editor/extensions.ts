@@ -19,6 +19,8 @@ export function createExtensions(): Extensions {
       blockquote: {},
       horizontalRule: {},
       heading: { levels: [1, 2, 3] },
+      // a click on a link puts the caret in it; opening it would navigate the window away from the document
+      link: { openOnClick: false },
     }),
     // ⇧⌘X, as in the Format menu; StarterKit's ⇧⌘S would strike the selection on its way to Save As
     Strike.extend({

@@ -9,10 +9,14 @@ import { buildCommands, IS_MAC, type Command } from "./commands";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { CommandPalette } from "./layout/CommandPalette";
+import { Dock } from "./layout/Dock";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
 import { Paper } from "./layout/Paper";
+import { ColorPopover, LinkPopover } from "./layout/Popovers";
+import { SelectionBubble } from "./layout/SelectionBubble";
+import { SlashMenu } from "./layout/SlashMenu";
 import { TopBar } from "./layout/TopBar";
 import { viewportLayout, type UiState } from "./layout/viewport";
 import { startTheme } from "./theme";
@@ -59,9 +63,14 @@ export default function App() {
   const [width, setWidth] = useState(() => window.innerWidth);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [paper, setPaper] = useState<HTMLDivElement | null>(null);
+  const [popover, setPopover] = useState<"link" | "color" | null>(null);
 
   const setUi = useCallback((patch: Partial<UiState>) => setUiState((u) => ({ ...u, ...patch })), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const openLink = useCallback(() => setPopover("link"), []);
+  const openColor = useCallback(() => setPopover("color"), []);
+  const closePopover = useCallback(() => setPopover(null), []);
   // The editor keeps its selection while the palette has focus; focusing it brings the selection back.
   const closePalette = useCallback(() => {
     setPaletteOpen(false);
@@ -102,8 +111,8 @@ export default function App() {
   }, []);
 
   const actions = useMemo(
-    () => (session ? buildActions({ editor, session, ui, setUi, openPalette }) : {}),
-    [editor, session, ui, setUi, openPalette],
+    () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor }) : {}),
+    [editor, session, ui, setUi, openPalette, openLink, openColor],
   );
   const commands: Command[] = session ? buildCommands({ editor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
@@ -165,6 +174,7 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
+  const comment = commands.find((c) => c.id === "comment");
 
   return (
     <div className="app" data-font={ui.sansFont ? "sans" : undefined}>
@@ -176,11 +186,24 @@ export default function App() {
         <main className="main">
           <div className="scroll" ref={setScroller}>
             <div className="canvas">
-              <Paper editor={editor} large={ui.largerText} />
+              <Paper editor={editor} large={ui.largerText} paperRef={setPaper}>
+                <SelectionBubble
+                  editor={editor}
+                  paper={paper}
+                  scroller={scroller}
+                  suspended={paletteOpen}
+                  run={run}
+                  onComment={comment?.enabled ? comment.run : undefined}
+                />
+                <SlashMenu editor={editor} paper={paper} suspended={paletteOpen} />
+                {popover === "link" && <LinkPopover editor={editor} paper={paper} onClose={closePopover} />}
+                {popover === "color" && <ColorPopover editor={editor} paper={paper} onClose={closePopover} />}
+              </Paper>
               {/* the comment cards (Task 13) */}
               {layout.showComments && <div className="comments-rail" />}
             </div>
           </div>
+          <Dock editor={editor} run={run} />
         </main>
         {layout.assistantOpen && (
           // mock 231–239: the panel's header; its body comes with Tasks 12 and 17

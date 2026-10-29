@@ -29,3 +29,9 @@ test("headings_stop_at_level_three", () => {
   expect(editor.can().setHeading({ level: 4 as 3 })).toBe(false);
   editor.destroy();
 });
+
+test("a_click_on_a_link_does_not_open_it", () => {
+  const editor = createHeadlessEditor();
+  expect(editor.extensionManager.extensions.find((e) => e.name === "link")!.options.openOnClick).toBe(false);
+  editor.destroy();
+});
