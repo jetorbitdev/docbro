@@ -20,6 +20,7 @@ import { ColorPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
 import { SlashMenu } from "./layout/SlashMenu";
 import { TopBar } from "./layout/TopBar";
+import { useReadingAnchor } from "./layout/useReadingAnchor";
 import { viewportLayout, type UiState } from "./layout/viewport";
 import { startTheme } from "./theme";
 
@@ -203,6 +204,8 @@ export default function App() {
   const layout = viewportLayout(width, ui);
   const comment = commands.find((c) => c.id === "comment");
   const leftMode = layout.showOutline ? "outline" : layout.outlineRail ? "rail" : "none";
+  // the page narrows beside an open comments rail, so a panel that opens or closes can rewrap the text: hold the reading position
+  useReadingAnchor(editor, scroller, [leftMode, layout.assistantOpen, layout.showComments, layout.showMenuBar].join(), resizing);
 
   return (
     <div className={`app${resizing ? " snap" : ""}`} data-font={ui.sansFont ? "sans" : undefined}>

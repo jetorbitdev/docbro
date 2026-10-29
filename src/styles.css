@@ -117,6 +117,8 @@ button,textarea{font-family:inherit}
 /* paper (133–182) */
 .main{flex:1;min-width:0;position:relative}
 .scroll{position:absolute;inset:0;overflow:auto}
+/* while a panel transition runs the reading position is held by startReadingAnchor; the browser's own anchoring would add to it */
+.scroll[data-pinning]{overflow-anchor:none}
 .canvas{display:flex;justify-content:center;align-items:flex-start;padding:48px 24px 160px}
 .paper{position:relative;width:100%;max-width:780px;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:clamp(28px,7vw,80px) clamp(22px,7vw,84px) 96px}
 .doc{font-family:var(--doc-font)}
