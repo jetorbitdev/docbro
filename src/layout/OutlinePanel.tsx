@@ -5,6 +5,8 @@ import { activeHeading, crumbs, docStats, outlineOf, type OutlineEntry } from ".
 
 interface Props {
   editor: Editor;
+  /** Showing now. The panel stays mounted when it is not (it is inert, and does no work). */
+  active: boolean;
   /** The element the paper scrolls in. */
   scroller: HTMLElement | null;
   path: string | null;
@@ -14,12 +16,13 @@ interface Props {
 const headingElement = (editor: Editor, entry: OutlineEntry) => editor.view.nodeDOM(entry.pos) as HTMLElement | null;
 
 /** Mock 98–127: headings 1–3 that follow the scroll, the document's counts and a FILE card. */
-export function Outline({ editor, scroller, path, onHide }: Props) {
+export function Outline({ editor, active: shown, scroller, path, onHide }: Props) {
   const [entries, setEntries] = useState<OutlineEntry[]>([]);
   const [stats, setStats] = useState(() => docStats(""));
   const [active, setActive] = useState(0);
 
   useEffect(() => {
+    if (!shown) return;
     const update = () => {
       setEntries(outlineOf(editor.state.doc));
       setStats(docStats(editor.getText({ blockSeparator: "\n" })));
@@ -33,10 +36,10 @@ export function Outline({ editor, scroller, path, onHide }: Props) {
     return () => {
       editor.off("transaction", onTransaction);
     };
-  }, [editor]);
+  }, [editor, shown]);
 
   useEffect(() => {
-    if (!scroller) return;
+    if (!scroller || !shown) return;
     const onScroll = () => {
       const top = scroller.getBoundingClientRect().top;
       const tops = entries.map((e) => (headingElement(editor, e)?.getBoundingClientRect().top ?? Infinity) - top);
@@ -45,7 +48,7 @@ export function Outline({ editor, scroller, path, onHide }: Props) {
     onScroll();
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
-  }, [editor, scroller, entries]);
+  }, [editor, scroller, entries, shown]);
 
   const go = (entry: OutlineEntry) => {
     const el = headingElement(editor, entry);
@@ -54,12 +57,12 @@ export function Outline({ editor, scroller, path, onHide }: Props) {
     scroller.scrollTo({ top, behavior: "smooth" });
   };
 
-  const { folder, name } = crumbs(path);
+  const { name } = crumbs(path);
   const format = path ? formatOf(path) : null;
   const kind = format === "docx" ? "Word document" : format === "md" ? "Markdown" : "Not saved yet";
 
   return (
-    <aside className="outline">
+    <aside className="outline" inert={!shown} aria-hidden={shown ? undefined : true}>
       <div className="outline-head">
         <span className="caption">OUTLINE</span>
         <button className="ghost-btn" title="Hide outline" aria-label="Hide outline" onClick={onHide}>
@@ -76,36 +79,33 @@ export function Outline({ editor, scroller, path, onHide }: Props) {
       <div className="spacer" />
       <div className="outline-foot">
         <div className="stats">
-          <Stat value={stats.words.toLocaleString("en-US")} label="Words" />
-          <Stat value={stats.characters.toLocaleString("en-US")} label="Characters" />
-          <Stat value={`${stats.readMinutes} min`} label="Read time" />
+          <Stat value={stats.words.toLocaleString("en-US")} label="words" />
+          <Stat value={stats.characters.toLocaleString("en-US")} label="characters" />
+          <Stat value={String(stats.readMinutes)} label="min read" />
         </div>
         <div className="caption">FILE</div>
-        <div className="file-card" title={path ?? undefined}>
+        <div className="file-card" title={path ? `${kind} · ${path}` : kind}>
           <span className="tile">{format === "md" ? "M" : "W"}</span>
-          <span className="text">
-            <span className="name">{name}</span>
-            <span className="meta">{folder ? `${kind} · ${folder}` : kind}</span>
-          </span>
+          <span className="name">{name}</span>
         </div>
       </div>
     </aside>
   );
 }
 
+/** The number in bold, then its label. */
 function Stat({ value, label }: { value: string; label: string }) {
   return (
-    <div className="stat">
-      <b>{value}</b>
-      <span>{label}</span>
-    </div>
+    <span className="stat">
+      <b>{value}</b> {label}
+    </span>
   );
 }
 
-/** Mock 98–102: the 48px rail an outline collapses to. */
-export function OutlineRail({ onShow }: { onShow(): void }) {
+/** Mock 98–102: the 40px rail an outline collapses to. Mounted with the outline; `active` is whether it shows. */
+export function OutlineRail({ active, onShow }: { active: boolean; onShow(): void }) {
   return (
-    <div className="outline-rail">
+    <div className="outline-rail" inert={!active} aria-hidden={active ? undefined : true}>
       <button className="rail-btn" title="Show outline" aria-label="Show outline" onClick={onShow}>
         ☰
       </button>
