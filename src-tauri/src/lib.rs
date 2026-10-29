@@ -1,4 +1,6 @@
+mod calls;
 mod files;
+mod mcp;
 
 use std::{
     collections::HashMap,
@@ -46,6 +48,10 @@ struct AppState {
     /// Files waiting for a window to pick them up once its webview listens. A label
     /// stays here after its files were taken, so that window is not handed another one.
     pending_open: Mutex<HashMap<String, Vec<String>>>,
+    /// MCP server settings and the live server
+    mcp: Mutex<mcp::Runtime>,
+    /// Tool calls sent to a window that wait for its answer
+    calls: calls::Calls,
 }
 
 impl AppState {
@@ -54,6 +60,8 @@ impl AppState {
             windows: Mutex::new(HashMap::new()),
             active: Mutex::new("main".into()),
             pending_open: Mutex::new(HashMap::new()),
+            mcp: Mutex::new(mcp::Runtime::load()),
+            calls: calls::Calls::default(),
         }
     }
 
@@ -379,9 +387,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 /// Entry point of `--mcp-stdio`: relays MCP messages between stdin/stdout and the running app.
-/// A stub until the MCP server lands.
 pub fn mcp_stdio_bridge() -> i32 {
-    1
+    mcp::stdio_bridge()
 }
 
 // ----------------------------------------------------------------- run
@@ -394,6 +401,7 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             app.set_menu(build_menu(app.handle())?)?;
+            mcp::autostart(app.handle());
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -419,7 +427,9 @@ pub fn run() {
             match event {
                 WindowEvent::Focused(true) => *state.active.lock_recovering() = label.to_string(),
                 WindowEvent::Destroyed => {
+                    // the entry goes before the calls fail: `call_in_window` relies on that order
                     state.windows.lock_recovering().remove(label);
+                    state.calls.fail_window(label);
                     state.pending_open.lock_recovering().remove(label);
                     let mut active = state.active.lock_recovering();
                     if *active == label {
@@ -440,6 +450,10 @@ pub fn run() {
             editor_ready,
             take_pending_open,
             open_in_window,
+            mcp::mcp_status,
+            mcp::mcp_set_enabled,
+            mcp::mcp_regenerate_token,
+            calls::mcp_reply,
         ])
         .build(tauri::generate_context!())
         .expect("error while building DocBro");
