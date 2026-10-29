@@ -377,6 +377,41 @@ test("reports_footnotes_page_setup_and_equations", async () => {
   expect(plainText(result)).toBe("x = ");
 });
 
+test("tracked_formatting_changes_are_reported_and_their_old_section_is_not_the_page_setup", async () => {
+  const change = 'w:id="1" w:author="Rina" w:date="2026-10-01T09:00:00Z"';
+  const runChange = p(r("tebal", `<w:b/><w:rPrChange ${change}><w:rPr/></w:rPrChange>`));
+  const paragraphChange = p(r("tengah"), `<w:jc w:val="center"/><w:pPrChange ${change}><w:pPr/></w:pPrChange>`);
+  // The new section is Letter; the old one (A5 landscape) only lives in the revision.
+  const sectionChange =
+    '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:gutter="0"/>' +
+    `<w:sectPrChange ${change}><w:sectPr><w:pgSz w:w="11906" w:h="8391" w:orient="landscape"/></w:sectPr></w:sectPrChange></w:sectPr>`;
+  for (const body of [runChange, paragraphChange, p(r("a")) + sectionChange]) {
+    const { doc: result, dropped } = await read({ document: body });
+    expect(dropped).toEqual(["tracked_changes"]);
+    expect(result.content![0].type).toBe("paragraph");
+  }
+  const { doc: result } = await read({ document: runChange + paragraphChange });
+  expect(findMark(result, "bold")).toEqual({ type: "bold" }); // the current formatting is kept
+  expect(result.content![1].attrs!.textAlign).toBe("center");
+});
+
+test("symbols_ruby_guides_and_ink_are_reported", async () => {
+  const sym = await read({ document: p(r("ok ") + '<w:r><w:sym w:font="Wingdings" w:char="F0FC"/></w:r>') });
+  expect(plainText(sym.doc)).toBe("ok ");
+  expect(sym.dropped).toEqual(["other_content"]);
+
+  const ruby = await read({
+    document: p(`<w:r><w:ruby><w:rubyPr><w:rubyAlign w:val="distributeSpace"/><w:hps w:val="10"/><w:hpsRaise w:val="20"/><w:hpsBaseText w:val="21"/><w:lid w:val="ja-JP"/></w:rubyPr>` +
+      `<w:rt>${r("かんじ")}</w:rt><w:rubyBase>${r("漢字", "<w:b/>")}</w:rubyBase></w:ruby></w:r>`),
+  });
+  expect(ruby.doc).toEqual(normalize(doc(para(t("漢字", { type: "bold" })))));
+  expect(ruby.dropped).toEqual(["other_content"]);
+
+  const ink = await read({ document: p(r("tanda tangan ") + '<w:r><w:contentPart r:id="rIdInk"/></w:r>') });
+  expect(plainText(ink.doc)).toBe("tanda tangan ");
+  expect(ink.dropped).toEqual(["other_content"]);
+});
+
 test("a_deleted_table_row_is_dropped_and_vertical_merges_without_a_start_stay_cells", async () => {
   const tc = (content: string, tcPr = "") => `<w:tc>${tcPr ? `<w:tcPr>${tcPr}</w:tcPr>` : ""}${content}</w:tc>`;
   const result = await readBody(

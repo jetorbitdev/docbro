@@ -170,6 +170,11 @@ function customPage(sectPr: Element): boolean {
   return !paper || !margins || gutter || columns;
 }
 
+const TRACKED = [
+  "w:ins", "w:del", "w:moveFrom", "w:moveTo", "w:cellIns", "w:cellDel", "w:cellMerge", "w:numberingChange",
+  "w:rPrChange", "w:pPrChange", "w:sectPrChange", "w:tblPrChange", "w:trPrChange", "w:tcPrChange",
+];
+
 async function droppedParts(zip: JSZip, body: Element): Promise<Set<DroppedPart>> {
   const dropped = new Set<DroppedPart>();
   for (const override of children((await readXml(zip, "[Content_Types].xml"))?.documentElement, "ct:Override")) {
@@ -184,8 +189,9 @@ async function droppedParts(zip: JSZip, body: Element): Promise<Set<DroppedPart>
     if (notes && descendants(notes, name).some((n) => Number(attr(n, "w:id")) > 0 && (attr(n, "w:type") ?? "normal") === "normal"))
       dropped.add("footnotes");
   }
-  if (["w:ins", "w:del", "w:moveFrom", "w:moveTo"].some((name) => descendants(body, name).length)) dropped.add("tracked_changes");
-  if (descendants(body, "w:sectPr").some(customPage)) dropped.add("page_setup");
+  if (TRACKED.some((name) => descendants(body, name).length)) dropped.add("tracked_changes");
+  // A w:sectPr inside w:sectPrChange is the old value of a tracked change, not a section.
+  if (descendants(body, "w:sectPr").some((s) => !is(s.parentElement!, "w:sectPrChange") && customPage(s))) dropped.add("page_setup");
   if (["w:txbxContent", "c:chart", "dgm:*", "m:oMath"].some((name) => descendants(body, name).length)) dropped.add("other_content");
   return dropped;
 }
@@ -455,7 +461,12 @@ function run(r: Element | null, ctx: Context, marks: Mark[], out: JSONContent[])
     else if (is(el, "w:softHyphen")) text("­");
     else if (is(el, "w:drawing")) drawing(el, ctx, out);
     else if (is(el, "w:pict")) pict(el, ctx, out);
-    else if (is(el, "w:object")) ctx.dropped.add("other_content");
+    else if (is(el, "w:object") || is(el, "w:sym") || is(el, "w:contentPart")) ctx.dropped.add("other_content");
+    else if (is(el, "w:ruby")) {
+      // The base text stays; the phonetic guide above it (w:rt) is lost.
+      inlines(first(el, "w:rubyBase"), ctx, marks.find((m) => m.type === "link") ?? null, out);
+      ctx.dropped.add("other_content");
+    }
     else if (is(el, "mc:AlternateContent")) run(choice(el), ctx, marks, out);
   }
 }
