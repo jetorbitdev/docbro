@@ -39,6 +39,10 @@ const metaKey = (meta: DocMeta) =>
  * The one owner of a window's file state: which file the editor shows, whether it has unsaved
  * changes, and the parts of the file the editor could not keep. The document itself stays in the
  * editor; `meta` holds what a Word file has beyond it (comments, header, footer, page numbers).
+ *
+ * `open` and `save` run one at a time, in the order they were asked for, so a slow save cannot
+ * land on top of a file that was opened after it, and a caller (the window, an MCP tool) needs
+ * no lock of its own. Each caller gets its own result or error; a failed one does not stop the next.
  */
 export class DocSession {
   private _path: string | null = null;
@@ -52,6 +56,8 @@ export class DocSession {
   private told: { path: string | null; dirty: boolean; blank: boolean };
   private loading = false;
   private listeners = new Set<() => void>();
+  // The tail of the open and save operations asked for so far. It never rejects.
+  private queue: Promise<unknown> = Promise.resolve();
 
   private onTransaction = ({ transaction }: EditorEvents["transaction"]) => {
     if (transaction.docChanged && !this.loading) this.sync();
@@ -111,7 +117,12 @@ export class DocSession {
     return () => this.listeners.delete(fn);
   }
 
-  async open(path: string, opts: { discard?: boolean } = {}): Promise<void> {
+  /** Shows the file in the editor. Refuses while there are unsaved changes, unless told to `discard` them. */
+  open(path: string, opts: { discard?: boolean } = {}): Promise<void> {
+    return this.serial(() => this.doOpen(path, opts));
+  }
+
+  private async doOpen(path: string, opts: { discard?: boolean }): Promise<void> {
     if (!isAbsolute(path)) throw new Error("Use an absolute path.");
     if (!formatOf(path)) throw new Error(UNKNOWN_FORMAT);
     if (this.dirty && !opts.discard) throw new Error(UNSAVED);
@@ -134,7 +145,11 @@ export class DocSession {
    * Writes the document to `path`, or to the file it already has. Resolves with the path written.
    * Refuses to replace another file (`overwrite`) or to lose something (`acceptLoss`) unless told.
    */
-  async save(path?: string | null, opts: { overwrite?: boolean; acceptLoss?: boolean } = {}): Promise<string> {
+  save(path?: string | null, opts: { overwrite?: boolean; acceptLoss?: boolean } = {}): Promise<string> {
+    return this.serial(() => this.doSave(path, opts));
+  }
+
+  private async doSave(path: string | null | undefined, opts: { overwrite?: boolean; acceptLoss?: boolean }): Promise<string> {
     const target = path ?? this._path;
     if (!target) throw new Error("The document has no file yet. Give a path.");
     if (!isAbsolute(target)) throw new Error("Use an absolute path.");
@@ -173,6 +188,13 @@ export class DocSession {
   markSaved(): void {
     this.capture(this.editor.state.doc, this._meta);
     this.sync(true);
+  }
+
+  // Runs `task` once every earlier one has settled, whether it succeeded or not.
+  private serial<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(task);
+    this.queue = result.catch(() => {});
+    return result;
   }
 
   private capture(doc: ProseMirrorNode, meta: DocMeta) {

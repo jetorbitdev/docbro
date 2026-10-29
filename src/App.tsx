@@ -89,6 +89,7 @@ async function saveAs(session: DocSession) {
 const saveDocument = (session: DocSession) => (session.path ? saveTo(session, null) : saveAs(session));
 
 // One file command at a time, so a shortcut that reaches the window twice opens one dialog, not two.
+// Only about dialogs: the session itself runs open and save one after the other.
 let busy = false;
 async function runExclusive(task: () => Promise<void>) {
   if (busy) return;

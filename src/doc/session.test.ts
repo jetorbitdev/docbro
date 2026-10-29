@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/core";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createHeadlessEditor } from "../editor/headless";
 import { exportDocx } from "../formats/docx/export";
 import { fixtureDoc } from "../formats/docx/fixture";
@@ -11,15 +11,21 @@ import { DocSession, LossyWriteError, type SessionIO } from "./session";
 class MemoryIO implements SessionIO {
   files = new Map<string, Uint8Array>();
   metas: { path: string | null; dirty: boolean; blank: boolean }[] = [];
-  gate: Promise<void> | null = null; // holds every write until it resolves
+  writes: { path: string; bytes: Uint8Array }[] = []; // in the order the writes began
+  // Each read or write takes the next promise from its list (if any) and waits for it,
+  // so a test can make the first call slow and the later ones fast.
+  readHolds: Promise<void>[] = [];
+  writeHolds: Promise<void>[] = [];
 
   async read(path: string) {
+    await this.readHolds.shift();
     const bytes = this.files.get(path);
     if (!bytes) throw new Error("Not found");
     return bytes;
   }
   async write(path: string, bytes: Uint8Array) {
-    await this.gate;
+    this.writes.push({ path, bytes });
+    await this.writeHolds.shift();
     this.files.set(path, bytes);
   }
   async exists(path: string) {
@@ -28,6 +34,13 @@ class MemoryIO implements SessionIO {
   meta(m: { path: string | null; dirty: boolean; blank: boolean }) {
     this.metas.push(m);
   }
+}
+
+/** A promise that stays pending until `release` is called. */
+function latch() {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => (release = resolve));
+  return { hold, release };
 }
 
 const BODY = "<w:p><w:r><w:t>Hello</w:t></w:r></w:p>";
@@ -304,10 +317,10 @@ test("a_bad_extension_is_reported_before_unsaved_changes", async () => {
 
 test("edits_made_while_a_save_is_writing_stay_unsaved", async () => {
   editor.commands.insertContent("one ");
-  let release!: () => void;
-  io.gate = new Promise<void>((resolve) => (release = resolve));
+  const { hold, release } = latch();
+  io.writeHolds = [hold];
   const saving = s.save("/d/a.docx");
-  await Promise.resolve();
+  await vi.waitFor(() => expect(io.writes).toHaveLength(1));
   editor.commands.insertContent("two ");
   release();
   await saving;
@@ -400,4 +413,119 @@ test("works_on_an_editor_that_is_not_mounted", async () => {
   expect(bareSession.dirty).toBe(false);
   bareSession.destroy();
   bare.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// open and save run one at a time, in the order they were asked for
+
+test("a_save_in_flight_finishes_before_a_later_open_starts", async () => {
+  io.files.set("/d/a.docx", await buildDocx({ document: BODY }));
+  io.files.set("/d/b.docx", await buildDocx({ document: "<w:p><w:r><w:t>Other</w:t></w:r></w:p>", header: true }));
+  await s.open("/d/a.docx");
+
+  const { hold, release } = latch();
+  io.writeHolds = [hold];
+  const saving = s.save("/d/copy.docx"); // Save As of an unedited document
+  const opening = s.open("/d/b.docx");
+  await vi.waitFor(() => expect(io.writes).toHaveLength(1));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(text(editor)).toBe("Hello"); // the open has not started: the save is still writing
+  expect(s.path).toBe("/d/a.docx");
+
+  release();
+  await Promise.all([saving, opening]);
+
+  expect(io.writes.map((w) => w.path)).toEqual(["/d/copy.docx"]);
+  expect(plainText((await importDocx(io.files.get("/d/copy.docx")!)).doc)).toBe("Hello");
+  // everything the window reports describes the file that was opened last
+  expect(s.path).toBe("/d/b.docx");
+  expect(s.dropped).toEqual(["headers"]);
+  expect(text(editor)).toBe("Other");
+  expect(s.dirty).toBe(false);
+  expect(io.metas.at(-1)).toEqual({ path: "/d/b.docx", dirty: false, blank: false });
+});
+
+test("an_open_asked_for_during_a_save_sees_the_document_the_save_made_clean", async () => {
+  io.files.set("/d/b.docx", await buildDocx({ document: "<w:p><w:r><w:t>Other</w:t></w:r></w:p>" }));
+  editor.commands.insertContent("draft");
+  const { hold, release } = latch();
+  io.writeHolds = [hold];
+  const saving = s.save("/d/a.docx");
+  const opening = s.open("/d/b.docx"); // no discard: fine once the save has finished
+  await vi.waitFor(() => expect(io.writes).toHaveLength(1));
+  release();
+  await Promise.all([saving, opening]);
+  expect(s.path).toBe("/d/b.docx");
+  expect(text(editor)).toBe("Other");
+  expect(plainText((await importDocx(io.files.get("/d/a.docx")!)).doc)).toBe("draft");
+});
+
+test("overlapping_saves_run_in_order_and_the_last_snapshot_wins", async () => {
+  io.files.set("/d/a.docx", await buildDocx({ document: BODY }));
+  await s.open("/d/a.docx");
+
+  const { hold, release } = latch();
+  io.writeHolds = [hold]; // only the first write is slow
+  editor.commands.insertContent("one ");
+  const first = s.save();
+  await vi.waitFor(() => expect(io.writes).toHaveLength(1));
+  editor.commands.insertContent("two ");
+  const second = s.save();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(io.writes).toHaveLength(1); // the second save waits for the first
+
+  release();
+  await Promise.all([first, second]);
+
+  const texts = await Promise.all(io.writes.map(async (w) => plainText((await importDocx(w.bytes)).doc)));
+  expect(texts).toEqual(["one Hello", "one two Hello"]);
+  expect(plainText((await importDocx(io.files.get("/d/a.docx")!)).doc)).toBe("one two Hello");
+  expect(text(editor)).toBe("one two Hello");
+  expect(s.dirty).toBe(false);
+});
+
+test("a_rejected_operation_does_not_block_the_next_one", async () => {
+  io.files.set("/d/a.docx", await buildDocx({ document: BODY }));
+  const results = await Promise.allSettled([
+    s.open("/d/missing.docx"),
+    s.open("a.docx"),
+    s.save(),
+    s.open("/d/a.docx"),
+    s.save("/d/b.md"),
+  ]);
+  expect(results.map((r) => r.status)).toEqual(["rejected", "rejected", "rejected", "fulfilled", "fulfilled"]);
+  expect((results[0] as PromiseRejectedResult).reason.message).toBe("Not found");
+  expect((results[1] as PromiseRejectedResult).reason.message).toBe("Use an absolute path.");
+  expect((results[2] as PromiseRejectedResult).reason.message).toBe("The document has no file yet. Give a path.");
+  expect(s.path).toBe("/d/b.md");
+
+  // a write that fails does not block the next save either
+  const failing = io.write.bind(io);
+  io.write = async () => {
+    io.write = failing;
+    throw new Error("Cannot write /d/c.docx");
+  };
+  const [lost, kept] = await Promise.allSettled([s.save("/d/c.docx"), s.save("/d/d.docx")]);
+  expect(lost.status).toBe("rejected");
+  expect(kept.status).toBe("fulfilled");
+  expect(s.path).toBe("/d/d.docx");
+});
+
+test("open_while_open_in_flight_loads_the_second_file_last", async () => {
+  io.files.set("/d/a.docx", await buildDocx({ document: "<w:p><w:r><w:t>First</w:t></w:r></w:p>", header: true }));
+  io.files.set("/d/b.docx", await buildDocx({ document: "<w:p><w:r><w:t>Second</w:t></w:r></w:p>" }));
+  const { hold, release } = latch();
+  io.readHolds = [hold]; // only the first read is slow
+
+  const first = s.open("/d/a.docx");
+  const second = s.open("/d/b.docx"); // no discard: the first open leaves the document clean
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(s.path).toBeNull(); // the second open waits for the first to finish reading
+  release();
+  await Promise.all([first, second]);
+
+  expect(s.path).toBe("/d/b.docx");
+  expect(s.dropped).toEqual([]);
+  expect(text(editor)).toBe("Second");
+  expect(s.dirty).toBe(false);
 });
