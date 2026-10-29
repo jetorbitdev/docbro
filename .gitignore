@@ -6,3 +6,4 @@ src-tauri/gen
 .superpowers/
 .vitest/
 .vitest-cache/
+.playwright-mcp/
