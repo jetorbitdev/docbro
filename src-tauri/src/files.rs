@@ -1,29 +1,49 @@
 use std::{
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use percent_encoding::percent_decode_str;
 
 use crate::CmdResult;
 
+static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+/// A new, empty file next to `path` that no other write owns. The name differs per call, so
+/// two saves of one path at once never share a temp file.
+fn create_temp(path: &Path, name: &str) -> io::Result<(File, PathBuf)> {
+    loop {
+        let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let temp = path.with_file_name(format!(".{name}.{}-{n}.docbro-tmp", std::process::id()));
+        // `create_new` never reuses a file that is already there, e.g. left by a crashed run
+        match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            opened => return opened.map(|file| (file, temp)),
+        }
+    }
+}
+
 /// Writes `data` to `path` so a crash or a full disk never leaves half a file behind: the
 /// bytes go to a hidden file in the same folder first, which then replaces `path` in one step.
+/// Writes to one path may overlap: the last rename wins and the file is always one complete payload.
 pub fn write_atomic(path: &Path, data: &[u8]) -> CmdResult<()> {
     let name = path
         .file_name()
         .ok_or_else(|| format!("Cannot write {}: it has no file name", path.display()))?;
-    let temp = path.with_file_name(format!(".{}.docbro-tmp", name.to_string_lossy()));
+    let failed = |e: io::Error| format!("Cannot write {}: {e}", path.display());
+    let (mut file, temp) = create_temp(path, &name.to_string_lossy()).map_err(failed)?;
     let written = (|| -> io::Result<()> {
-        let mut file = File::create(&temp)?;
         file.write_all(data)?;
         file.sync_all()?;
+        // Windows cannot rename a file that is still open
+        drop(file);
         fs::rename(&temp, path)
     })();
     written.map_err(|e| {
         let _ = fs::remove_file(&temp);
-        format!("Cannot write {}: {e}", path.display())
+        failed(e)
     })
 }
 
@@ -85,6 +105,47 @@ mod tests {
         fs::create_dir(&target).unwrap();
         assert!(write_atomic(&target, b"x").is_err());
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn concurrent_writes_to_one_path_leave_one_complete_payload() {
+        use std::sync::{Arc, Barrier};
+
+        // different sizes and bytes: a mix of two writes, or a longer one's tail, shows
+        let payloads: Vec<Vec<u8>> =
+            [(1024, 0x11), (64 * 1024, 0x22), (3 * 1024, 0x33), (16 * 1024, 0x44), (512, 0x55)]
+                .into_iter()
+                .map(|(len, byte)| vec![byte; len])
+                .collect();
+        let dir = tmp("concurrent");
+        let target = dir.join("a.docx");
+        for round in 0..40 {
+            let start = Arc::new(Barrier::new(payloads.len()));
+            let writers: Vec<_> = payloads
+                .iter()
+                .cloned()
+                .map(|payload| {
+                    let (target, start) = (target.clone(), start.clone());
+                    std::thread::spawn(move || {
+                        start.wait();
+                        write_atomic(&target, &payload)
+                    })
+                })
+                .collect();
+            for writer in writers {
+                writer.join().unwrap().unwrap_or_else(|e| panic!("round {round}: {e}"));
+            }
+            let content = fs::read(&target).unwrap();
+            assert!(
+                payloads.contains(&content),
+                "round {round}: {} bytes, not one payload",
+                content.len()
+            );
+            let names: Vec<_> =
+                fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+            assert_eq!(names, vec![std::ffi::OsString::from("a.docx")], "round {round}");
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 
