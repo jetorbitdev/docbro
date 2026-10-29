@@ -28,13 +28,18 @@ afterEach(() => {
   editors = [];
 });
 
-/** The text of each textblock as runs of [text, marks], to compare words and their marks. */
+/** The text of each textblock as runs of [text, marks], neighbours with the same marks joined, to compare words and their marks. */
 function runs(editor: Editor): [string, string[]][][] {
   const out: [string, string[]][][] = [];
   editor.state.doc.descendants((node) => {
     if (!node.isTextblock) return;
     const line: [string, string[]][] = [];
-    node.forEach((child) => line.push([child.isText ? child.text! : `<${child.type.name}>`, child.marks.map((m) => m.type.name)]));
+    node.forEach((child) => {
+      const marks = child.marks.map((m) => m.type.name);
+      const last = line[line.length - 1];
+      if (child.isText && last && !last[0].startsWith("<") && last[1].join() === marks.join()) last[0] += child.text!;
+      else line.push([child.isText ? child.text! : `<${child.type.name}>`, marks]);
+    });
     out.push(line);
   });
   return out;
@@ -61,7 +66,7 @@ test("finds_across_mark_boundaries", () => {
 test("does_not_match_across_paragraphs", () => {
   const editor = make(p(t("hel")), p(t("lo")));
   expect(findAll(editor.state.doc, "hello")).toEqual([]);
-  expect(findAll(editor.state.doc, "lo")).toEqual([{ from: 7, to: 9 }]);
+  expect(findAll(editor.state.doc, "lo")).toEqual([{ from: 6, to: 8 }]);
   // not through the end of one block and the start of the next, even with a space in the query
   expect(findAll(make(p(t("ab")), p(t("cd"))).state.doc, "b c")).toEqual([]);
   expect(findAll(make(p(t("ab")), p(t("cd"))).state.doc, "bc")).toEqual([]);
@@ -185,7 +190,7 @@ test("letters_match_without_regard_to_case_beyond_ascii", () => {
   expect(found(editor, "école")).toEqual(["École", "école", "ÉCOLE"]);
   expect(found(editor, "É", { caseSensitive: true })).toEqual(["É", "É"]);
   expect(found(editor, "é", { caseSensitive: true })).toEqual(["é"]);
-  expect(found(editor, "É")).toHaveLength(6); // É é É é … every é and É
+  expect(found(editor, "É")).toEqual(["É", "é", "É"]);
   // Greek and Cyrillic fold too, and a letter whose uppercase is longer does not move the positions
   const other = make(p(t("ΣΑΣ привет ПРИВЕТ straße STRASSE")));
   expect(found(other, "σασ")).toEqual(["ΣΑΣ"]);
@@ -221,14 +226,14 @@ test("emoji_keep_positions_right_and_are_never_split", () => {
   apply(editor, replaceAll(editor.state, "hi", "😀😀"));
   expect(lines(editor)).toEqual(["😀 😀😀 😀 😀😀 👨‍👩‍👧"]);
   apply(editor, replaceAll(editor.state, "😀", "x"));
-  expect(lines(editor)).toEqual(["x xx x x xx 👨‍👩‍👧"]);
+  expect(lines(editor)).toEqual(["x xx x xx 👨‍👩‍👧"]);
 });
 
 test("an_emoji_split_over_two_marked_runs_is_still_whole_in_the_match", () => {
   const editor = make(p(t("a😀", "bold"), t("b")));
   expect(found(editor, "😀b")).toEqual(["😀b"]);
   apply(editor, replaceAll(editor.state, "😀b", "-"));
-  expect(runs(editor)).toEqual([[["a", ["bold"]], ["-", ["bold"]]]]); // the first character's marks (the emoji's)
+  expect(runs(editor)).toEqual([[["a-", ["bold"]]]]); // the first character's marks (the emoji's)
 });
 
 test("a_hard_break_ends_a_match_and_a_query_cannot_contain_one", () => {
@@ -259,12 +264,13 @@ test("matches_inside_table_cells_and_list_items", () => {
   );
   expect(found(editor, "foo")).toEqual(["foo", "Foo", "foo", "foo", "foo", "foo", "FOO", "foo"]);
   apply(editor, replaceAll(editor.state, "foo", "quux"));
-  expect(lines(editor)).toEqual(["one quux", "quux", "bar", "a quux", "quuxquux", "a quux", "b", "c quux", "a quux"]);
+  // (the editor keeps an empty paragraph after a document's last block)
+  expect(lines(editor)).toEqual(["one quux", "quux", "bar", "a quux", "quuxquux", "a quux", "b", "c quux", "a quux", ""]);
   // "a foo" in the cell was bold, and the bold survives; so does italic in the quote, from the first letter
-  expect(runs(editor)[3]).toEqual([["a ", ["bold"]], ["quux", ["bold"]]].reduce<[string, string[]][]>((acc, r) => [...acc, r as [string, string[]]], []).slice(0, 0).concat([["a quux", ["bold"]]]));
+  expect(runs(editor)[3]).toEqual([["a quux", ["bold"]]]);
   expect(runs(editor)[8]).toEqual([["a ", []], ["quux", ["italic"]]]);
   expect(editor.commands.undo()).toBe(true);
-  expect(lines(editor)).toEqual(["one foo", "Foo", "bar", "a foo", "foofoo", "a foo", "b", "c FOO", "a foo"]);
+  expect(lines(editor)).toEqual(["one foo", "Foo", "bar", "a foo", "foofoo", "a foo", "b", "c FOO", "a foo", ""]);
 });
 
 test("find_all_stays_inside_the_given_range", () => {
@@ -302,7 +308,7 @@ test("find_all_stays_inside_the_given_range", () => {
 test("replace_all_keeps_the_marks_of_the_first_character_of_each_match", () => {
   const editor = make(p(t("**"), t("he", "bold"), t("llo"), t(" "), t("he"), t("llo", "italic")));
   apply(editor, replaceAll(editor.state, "hello", "yo"));
-  expect(runs(editor)).toEqual([[["**", []], ["yo", ["bold"]], [" ", []], ["yo", []]]]);
+  expect(runs(editor)).toEqual([[["**", []], ["yo", ["bold"]], [" yo", []]]]);
 });
 
 test("replacing_with_an_empty_string_deletes_the_matches", () => {
@@ -362,7 +368,7 @@ test("a_newline_in_the_replacement_becomes_a_hard_break", () => {
   const editor = make(p(t("a-b", "bold")));
   apply(editor, replaceAll(editor.state, "-", "x\ny\r\nz"));
   expect(runs(editor)).toEqual([[
-    ["a", ["bold"]], ["x", ["bold"]], ["<hardBreak>", ["bold"]], ["y", ["bold"]], ["<hardBreak>", ["bold"]], ["z", ["bold"]], ["b", ["bold"]],
+    ["ax", ["bold"]], ["<hardBreak>", ["bold"]], ["y", ["bold"]], ["<hardBreak>", ["bold"]], ["zb", ["bold"]],
   ]]);
   // and it is not a match for what was just put in
   expect(findAll(editor.state.doc, "x y")).toEqual([]);
@@ -377,7 +383,7 @@ test("the_selected_text_seeds_the_find_field", () => {
   expect(seedQuery(editor.state)).toBe(""); // a caret selects nothing
   select(1, 6);
   expect(seedQuery(editor.state)).toBe("hello");
-  select(1, 17);
+  select(1, 18);
   expect(seedQuery(editor.state)).toBe("hello brave world"); // across marks
   select(1, 22);
   expect(seedQuery(editor.state)).toBe(""); // not across blocks
@@ -387,6 +393,6 @@ test("a_selection_with_a_hard_break_or_too_long_does_not_seed", () => {
   const editor = make(p(t("a"), br, t("b")), p(t("x".repeat(500))));
   editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 1, 4)));
   expect(seedQuery(editor.state)).toBe("");
-  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 7, 507)));
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 6, 506)));
   expect(seedQuery(editor.state)).toBe("");
 });
