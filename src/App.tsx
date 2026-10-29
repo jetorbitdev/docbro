@@ -10,8 +10,7 @@ import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { CommandPalette } from "./layout/CommandPalette";
 import { MenuBar } from "./layout/MenuBar";
-// with its extension: on a case-insensitive disk "./layout/Outline" would find outline.ts
-import { Outline, OutlineRail } from "./layout/Outline.tsx";
+import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
 import { Paper } from "./layout/Paper";
 import { TopBar } from "./layout/TopBar";
