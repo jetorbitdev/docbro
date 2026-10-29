@@ -1,12 +1,24 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { EditorContent, useEditor } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { useEditor } from "@tiptap/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
-import { DocSession, LossyWriteError, type SessionIO } from "./doc/session";
+import { buildCommands, IS_MAC, type Command } from "./commands";
+import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
-import { formatOf, UNKNOWN_FORMAT } from "./formats";
+import { CommandPalette } from "./layout/CommandPalette";
+import { MenuBar } from "./layout/MenuBar";
+// with its extension: on a case-insensitive disk "./layout/Outline" would find outline.ts
+import { Outline, OutlineRail } from "./layout/Outline.tsx";
+import { crumbs } from "./layout/outline";
+import { Paper } from "./layout/Paper";
+import { TopBar } from "./layout/TopBar";
+import { viewportLayout, type UiState } from "./layout/viewport";
+import { startTheme } from "./theme";
+
+startTheme();
 
 // The session talks to the Rust core through the typed wrappers.
 const io: SessionIO = {
@@ -16,102 +28,46 @@ const io: SessionIO = {
   meta: ({ path, dirty, blank }) => void api.setDocMeta(path, dirty, blank).catch(() => {}),
 };
 
-const showError = (e: unknown) => void message(e instanceof Error ? e.message : String(e), { title: "DocBro", kind: "error" });
+const FONT_KEY = "docbro-font";
 
-/** Shows `path` in this window, after asking whether to throw away unsaved changes. */
-async function openHere(session: DocSession, path: string) {
-  if (
-    session.dirty &&
-    !(await ask("This document has unsaved changes. Discard them?", {
-      title: "Unsaved changes",
-      kind: "warning",
-      okLabel: "Discard",
-      cancelLabel: "Cancel",
-    }))
-  )
-    return;
+function initialUi(): UiState {
+  let sansFont = false;
   try {
-    await session.open(path, { discard: true });
-  } catch (e) {
-    showError(e);
+    sansFont = localStorage.getItem(FONT_KEY) === "sans";
+  } catch {
+    // no storage: the serif default
   }
+  return {
+    focus: false,
+    hideOutline: false,
+    forceOutline: false,
+    hideComments: false,
+    assistantOpen: false,
+    menuBar: true,
+    largerText: false,
+    sansFont,
+  };
 }
 
-/** The first file replaces an untouched blank document; the others get windows of their own. */
-async function openPaths(session: DocSession, paths: string[]) {
-  for (const [i, path] of paths.entries()) {
-    try {
-      if (!formatOf(path)) throw new Error(UNKNOWN_FORMAT);
-      if (await api.openInWindow(path, i === 0 && session.blank)) await openHere(session, path);
-    } catch (e) {
-      showError(e);
-    }
-  }
-}
+// Save can arrive twice for one key press off macOS: the native menu's accelerator and the key handler below.
+const SAVE_IDS = new Set(["save", "save_as"]);
 
-async function pickAndOpen(session: DocSession) {
-  const picked = await openDialog({
-    multiple: true,
-    filters: [{ name: "Documents", extensions: ["docx", "md", "markdown"] }],
-  });
-  if (picked) await openPaths(session, picked);
-}
-
-/** Saves, and when that would lose something asks whether to go on. */
-async function saveTo(session: DocSession, path: string | null, overwrite = false) {
-  try {
-    await session.save(path, { overwrite });
-  } catch (e) {
-    if (!(e instanceof LossyWriteError)) throw e;
-    const choice = await message(e.message, {
-      title: "Some content will be lost",
-      kind: "warning",
-      buttons: { yes: "Save anyway", no: "Save As…", cancel: "Cancel" },
-    });
-    if (choice === "Save anyway") await session.save(path, { overwrite, acceptLoss: true });
-    else if (choice === "Save As…") await saveAs(session);
-  }
-}
-
-async function saveAs(session: DocSession) {
-  const word = { name: "Word document", extensions: ["docx"] };
-  const markdown = { name: "Markdown", extensions: ["md", "markdown"] };
-  let target = await saveDialog({
-    defaultPath: session.path ?? "Untitled.docx",
-    filters: session.path && formatOf(session.path) === "md" ? [markdown, word] : [word, markdown],
-  });
-  if (!target) return;
-  if (!formatOf(target)) target += ".docx";
-  // the save dialog already asked about replacing a file
-  await saveTo(session, target, true);
-}
-
-const saveDocument = (session: DocSession) => (session.path ? saveTo(session, null) : saveAs(session));
-
-// One file command at a time, so a shortcut that reaches the window twice opens one dialog, not two.
-// Only about dialogs: the session itself runs open and save one after the other.
-let busy = false;
-async function runExclusive(task: () => Promise<void>) {
-  if (busy) return;
-  busy = true;
-  try {
-    await task();
-  } catch (e) {
-    showError(e);
-  } finally {
-    busy = false;
-  }
-}
-
-// The bare window: an editor and the plumbing every window keeps. The layout replaces the rest.
 export default function App() {
-  const editor = useEditor({
-    extensions: createExtensions(),
-    autofocus: true,
-    editorProps: { attributes: { style: "outline: none; min-height: 70vh" } },
-  });
+  const editor = useEditor({ extensions: createExtensions(), autofocus: true });
   const [session, setSession] = useState<DocSession | null>(null);
-  const [title, setTitle] = useState("Untitled");
+  const [doc, setDoc] = useState(() => ({ path: null as string | null, dirty: false }));
+  const [ui, setUiState] = useState(initialUi);
+  const [width, setWidth] = useState(() => window.innerWidth);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+
+  const setUi = useCallback((patch: Partial<UiState>) => setUiState((u) => ({ ...u, ...patch })), []);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  // The editor keeps its selection while the palette has focus; focusing it brings the selection back.
+  const closePalette = useCallback(() => {
+    setPaletteOpen(false);
+    editor.commands.focus();
+  }, [editor]);
 
   useEffect(() => {
     const created = new DocSession(editor, io);
@@ -119,32 +75,61 @@ export default function App() {
     return () => created.destroy();
   }, [editor]);
 
+  // Any session change re-renders: the top bar shows the path and dirty state, the menus read the meta (header, footer…).
   useEffect(() => {
     if (!session) return;
-    const update = () => setTitle(`${session.name}${session.dirty ? " — Edited" : ""}`);
+    const update = () => setDoc({ path: session.path, dirty: session.dirty });
     update();
     return session.onChange(update);
   }, [session]);
 
   useEffect(() => {
+    const title = `${crumbs(doc.path).name}${doc.dirty ? " — Edited" : ""}`;
     getCurrentWindow().setTitle(title).catch(() => {});
-  }, [title]);
+  }, [doc.path, doc.dirty]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FONT_KEY, ui.sansFont ? "sans" : "serif");
+    } catch {
+      // not remembered, still applied
+    }
+  }, [ui.sansFont]);
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const actions = useMemo(
+    () => (session ? buildActions({ editor, session, ui, setUi, openPalette }) : {}),
+    [editor, session, ui, setUi, openPalette],
+  );
+  const commands: Command[] = session ? buildCommands({ editor, session, ui, setUi, actions }) : [];
+  // Listeners registered once run the commands as they are now.
+  const latest = useRef(commands);
+  useEffect(() => {
+    latest.current = commands;
+  });
+  const run = useCallback((id: string) => latest.current.find((c) => c.id === id)?.run(), []);
 
   useEffect(() => {
     if (!session) return;
+    const repeat = recentlyRan(500);
     const command = (id: string) => {
-      switch (id) {
-        case "open": return runExclusive(() => pickAndOpen(session));
-        case "save": return runExclusive(() => saveDocument(session));
-        case "save_as": return runExclusive(() => saveAs(session));
-        default: console.log("menu", id); // the layout runs the rest
-      }
+      if (SAVE_IDS.has(id) && repeat(id)) return;
+      run(id);
     };
-    // Temporary: the menu's own shortcut normally arrives as a `menu` event.
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "s") {
+      const mod = IS_MAC ? e.metaKey : e.ctrlKey;
+      if ((mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") || (e.altKey && e.code === "Slash")) {
         e.preventDefault();
-        void command(e.shiftKey ? "save_as" : "save");
+        openPalette();
+      } else if (!IS_MAC && e.ctrlKey && !e.altKey && e.key.toLowerCase() === "s") {
+        // on macOS the native menu always takes ⌘S; elsewhere its accelerator may not reach a focused webview
+        e.preventDefault();
+        command(e.shiftKey ? "save_as" : "save");
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -152,10 +137,10 @@ export default function App() {
     // only events sent to this window: every window has its own document
     const win = getCurrentWindow();
     const unlisten: Promise<() => void>[] = [
-      win.listen<string>("menu", (e) => void command(e.payload)),
-      win.listen<string>("open-file", (e) => void openHere(session, e.payload)),
+      win.listen<string>("menu", (e) => command(e.payload)),
+      win.listen<string>("open-file", (e) => void receiveFile(tauriShell, session, e.payload)),
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === "drop") void openPaths(session, e.payload.paths);
+        if (e.payload.type === "drop") void openPaths(tauriShell, session, e.payload.paths);
       }),
       win.onCloseRequested(async (e) => {
         if (!session.dirty) return;
@@ -171,18 +156,48 @@ export default function App() {
     ];
     // the file this window was opened for, handed over before we were listening
     api.takePendingOpen().then((paths) => {
-      if (paths[0]) void openHere(session, paths[0]);
-    }, showError);
+      if (paths[0]) void receiveFile(tauriShell, session, paths[0]);
+    }, tauriShell.showError);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       unlisten.forEach((u) => void u.then((f) => f()));
     };
-  }, [session]);
+  }, [session, run, openPalette]);
+
+  const layout = viewportLayout(width, ui);
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "72px 48px", fontFamily: "'IBM Plex Serif', Georgia, serif" }}>
-      <EditorContent editor={editor} className="doc" />
-    </main>
+    <div className="app" data-font={ui.sansFont ? "sans" : undefined}>
+      <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen} run={run} />
+      {layout.showMenuBar && <MenuBar commands={commands} />}
+      <div className="workspace">
+        {layout.outlineRail && <OutlineRail onShow={() => run("outline")} />}
+        {layout.showOutline && <Outline editor={editor} scroller={scroller} path={doc.path} onHide={() => run("outline")} />}
+        <main className="main">
+          <div className="scroll" ref={setScroller}>
+            <div className="canvas">
+              <Paper editor={editor} large={ui.largerText} />
+              {/* the comment cards (Task 13) */}
+              {layout.showComments && <div className="comments-rail" />}
+            </div>
+          </div>
+        </main>
+        {layout.assistantOpen && (
+          // mock 231–239: the panel's header; its body comes with Tasks 12 and 17
+          <aside className="assistant-panel" style={{ width: layout.assistantWidth }}>
+            <div className="assistant-head">
+              <span className="title">Assistant</span>
+              <span className="pill">MCP</span>
+              <div className="spacer" />
+              <button className="close-btn" title="Close" aria-label="Close" onClick={() => run("assistant")}>
+                ×
+              </button>
+            </div>
+          </aside>
+        )}
+      </div>
+      {paletteOpen && <CommandPalette commands={commands} onClose={closePalette} />}
+    </div>
   );
 }
