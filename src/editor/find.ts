@@ -1,3 +1,4 @@
+import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, type Mark, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 
@@ -97,7 +98,8 @@ function replaceRange(tr: Transaction, { from, to }: FindMatch, replacement: str
 export function replaceAll(state: EditorState, query: string, replacement: string, opts?: FindOptions): Transaction | null {
   const matches = findAll(state.doc, query, opts);
   if (!matches.length) return null;
-  const tr = state.tr;
+  // closeHistory: undo takes back this replacement alone, even if it follows an edit by a moment
+  const tr = closeHistory(state.tr);
   // last match first: an edit then only moves text after it, so the positions still to do stay right
   for (let i = matches.length - 1; i >= 0; i--) replaceRange(tr, matches[i], replacement);
   return tr;
@@ -105,7 +107,7 @@ export function replaceAll(state: EditorState, query: string, replacement: strin
 
 /** Replaces one match, as `replaceAll` does. */
 export function replaceOne(state: EditorState, match: FindMatch, replacement: string): Transaction {
-  const tr = state.tr;
+  const tr = closeHistory(state.tr);
   replaceRange(tr, match, replacement);
   return tr;
 }

@@ -205,3 +205,28 @@ test("escape_in_the_editor_asks_to_close_the_bar_and_other_keys_do_not", () => {
   expect(press("Escape")).toBe(true);
   expect(onEscape).toHaveBeenCalledOnce();
 });
+
+test("each_search_and_step_scrolls_the_current_match_into_view_and_a_plain_edit_does_not", () => {
+  // The page's own scroll-to-selection needs the page to have the focus, and the bar's field has it.
+  const scrolled: (string | null)[] = [];
+  const original = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this.textContent + (this.classList.contains("find-current") ? " (current)" : ""));
+  };
+  try {
+    const editor = make(p(t("foo and Foo")), p(t("a foo")));
+    search(editor, "foo");
+    expect(scrolled).toEqual(["foo (current)"]);
+    step(editor, 1);
+    expect(scrolled).toEqual(["foo (current)", "Foo (current)"]);
+    runFind(editor.view, { type: "from", pos: 1 });
+    expect(scrolled).toHaveLength(3);
+    editor.commands.insertContentAt(2, "x"); // an edit by the person typing
+    editor.commands.setTextSelection(3);
+    expect(scrolled).toHaveLength(3);
+    search(editor, "zzz"); // nothing to show
+    expect(scrolled).toHaveLength(3);
+  } finally {
+    Element.prototype.scrollIntoView = original;
+  }
+});

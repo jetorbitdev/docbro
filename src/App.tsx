@@ -8,6 +8,8 @@ import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
+import { seedQuery } from "./editor/find";
+import { FindBar, type FindRequest } from "./editor/FindBar";
 import { CommandPalette } from "./layout/CommandPalette";
 import { Dock } from "./layout/Dock";
 import { MenuBar } from "./layout/MenuBar";
@@ -65,12 +67,24 @@ export default function App() {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   const [popover, setPopover] = useState<"link" | "color" | null>(null);
+  const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
+  const findCount = useRef(0);
 
   const setUi = useCallback((patch: Partial<UiState>) => setUiState((u) => ({ ...u, ...patch })), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const openLink = useCallback(() => setPopover("link"), []);
   const openColor = useCallback(() => setPopover("color"), []);
   const closePopover = useCallback(() => setPopover(null), []);
+  // Edit ▸ Find… and Find and replace…: opens the bar, or takes the focus back to one already open
+  const openFind = useCallback(
+    (replace: boolean) => setFindRequest({ id: ++findCount.current, replace, seed: seedQuery(editor.state) }),
+    [editor],
+  );
+  // the page gets its focus back, and with it the match the bar was on as the selection
+  const closeFind = useCallback(() => {
+    setFindRequest(null);
+    editor.commands.focus();
+  }, [editor]);
   // The editor keeps its selection while the palette has focus; focusing it brings the selection back.
   const closePalette = useCallback(() => {
     setPaletteOpen(false);
@@ -111,8 +125,8 @@ export default function App() {
   }, []);
 
   const actions = useMemo(
-    () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor }) : {}),
-    [editor, session, ui, setUi, openPalette, openLink, openColor],
+    () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor, openFind }) : {}),
+    [editor, session, ui, setUi, openPalette, openLink, openColor, openFind],
   );
   const commands: Command[] = session ? buildCommands({ editor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
@@ -180,6 +194,7 @@ export default function App() {
     <div className="app" data-font={ui.sansFont ? "sans" : undefined}>
       <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen} run={run} />
       {layout.showMenuBar && <MenuBar commands={commands} />}
+      {findRequest && <FindBar editor={editor} request={findRequest} onClose={closeFind} />}
       <div className="workspace">
         {layout.outlineRail && <OutlineRail onShow={() => run("outline")} />}
         {layout.showOutline && <Outline editor={editor} scroller={scroller} path={doc.path} onHide={() => run("outline")} />}

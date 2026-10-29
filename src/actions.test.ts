@@ -287,3 +287,18 @@ test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
   actions.pickColor!();
   expect(openColor).toHaveBeenCalledOnce();
 });
+
+test("find_and_replace_open_the_find_bar_in_their_two_modes", () => {
+  const ui = {} as UiState;
+  const openFind = vi.fn();
+  const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, openFind, shell: fakeShell() });
+  expect(Object.keys(actions)).toEqual(expect.arrayContaining(["find", "replace"]));
+  actions.find!();
+  expect(openFind).toHaveBeenLastCalledWith(false);
+  actions.replace!();
+  expect(openFind).toHaveBeenLastCalledWith(true);
+  // without the opener the commands stay disabled
+  const without = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, shell: fakeShell() });
+  expect(without.find).toBeUndefined();
+  expect(without.replace).toBeUndefined();
+});

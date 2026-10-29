@@ -99,6 +99,20 @@ test("replace_all_is_one_undo_step_and_keeps_bold", () => {
   expect(lines(editor)).toEqual(["a dog and a dog", "the dog"]);
 });
 
+test("a_replace_right_after_typing_is_still_its_own_undo_step", () => {
+  const editor = make(p(t("a cat")));
+  editor.commands.insertContentAt(6, "s"); // typed a moment ago, well inside the history's grouping delay
+  apply(editor, replaceAll(editor.state, "cat", "dog"));
+  expect(lines(editor)).toEqual(["a dogs"]);
+  editor.commands.undo();
+  expect(lines(editor)).toEqual(["a cats"]); // only the replacement went
+  editor.view.dispatch(replaceOne(editor.state, { from: 3, to: 6 }, "ox"));
+  editor.view.dispatch(replaceOne(editor.state, { from: 3, to: 5 }, "cow"));
+  expect(lines(editor)).toEqual(["a cows"]);
+  editor.commands.undo();
+  expect(lines(editor)).toEqual(["a oxs"]); // one replace at a time
+});
+
 test("replacement_containing_the_query_does_not_loop", () => {
   const editor = make(p(t("a b a")));
   apply(editor, replaceAll(editor.state, "a", "aa"));
@@ -138,6 +152,10 @@ test("regex_characters_in_the_query_are_literal", () => {
   expect(found(editor, "(")).toEqual(["("]);
   expect(found(editor, "\\")).toEqual(["\\"]);
   expect(found(editor, ".*")).toEqual([]);
+  // characters a pattern in unicode mode treats specially or refuses to have escaped
+  const plain = make(p(t("a-b c/d ] } x.y")));
+  for (const q of ["-", "/", "]", "}", "a-b", "c/d", "] }"]) expect(found(plain, q)).toEqual([q]);
+  expect(found(plain, "x.y")).toEqual(["x.y"]);
 });
 
 test("a_replacement_is_literal_text_not_a_pattern", () => {

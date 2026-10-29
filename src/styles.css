@@ -141,6 +141,30 @@ button,textarea{font-family:inherit}
 .pal-item .keys{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
 .pal-empty{padding:28px 12px;text-align:center;font-size:13.5px;color:var(--muted)}
 
+/* find bar: the palette's input row (335–339) under the menu bar, and the matches it marks in the page */
+.findbar{flex-shrink:0;border-bottom:1px solid var(--line);background:var(--surface2);position:relative;z-index:10}
+.find-row{display:flex;align-items:center;gap:10px;min-height:38px;padding:5px 16px}
+.find-row+.find-row{border-top:1px solid var(--line)}
+.find-row .glyph{width:16px;text-align:center;font-size:15px;color:var(--muted);flex-shrink:0}
+.find-row:focus-within .glyph{color:var(--accent-ink)}
+.find-input{flex:1;min-width:0;max-width:420px;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:7px;outline:0;background:var(--surface);font:inherit;font-size:13.5px;color:var(--ink)}
+.find-input:focus{border-color:var(--accent-ink)}
+.find-input::placeholder{color:var(--muted)}
+.find-count{min-width:76px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.find-tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.find-btn{min-width:28px;height:28px;padding:0 6px;border:0;border-radius:7px;background:transparent;color:var(--ink2);font-size:14px;cursor:pointer}
+.find-btn:hover:not(:disabled){background:var(--hover)}
+.find-btn:disabled{opacity:.45;cursor:default}
+.find-btn.case{font-size:12.5px;font-weight:600}
+.find-btn.on{background:var(--accent-soft);color:var(--accent-ink)}
+.find-text-btn{height:28px;padding:0 12px;border:1px solid var(--line2);border-radius:7px;background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:500;cursor:pointer}
+.find-text-btn+.find-text-btn{margin-left:4px}
+.find-text-btn:hover:not(:disabled){background:var(--hover)}
+.find-text-btn:disabled{opacity:.45;cursor:default}
+.doc .find-match{background:var(--hl);border-radius:2px;box-shadow:0 0 0 1px var(--hl-line)}
+/* a match scrolled to stays clear of the top of the window and of the dock floating over the foot of the page */
+.doc .find-current{box-shadow:0 0 0 2px var(--hl-line),0 0 0 4px var(--accent-soft);scroll-margin:90px 0 130px}
+
 /* selection bubble (157–169) */
 .bubble{position:absolute;transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;background:var(--pill);color:var(--pill-ink);border-radius:10px;box-shadow:0 8px 24px -8px rgba(0,0,0,.35);z-index:5;white-space:nowrap}
 .bubble button{width:30px;height:30px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -204,4 +228,5 @@ button,textarea{font-family:inherit}
   .canvas{display:block;padding:0}
   .paper{max-width:none;border:0;border-radius:0;box-shadow:none;padding:0}
   .doc.large{zoom:1}
+  .doc .find-match{background:none;box-shadow:none}
 }

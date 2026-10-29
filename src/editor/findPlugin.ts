@@ -14,10 +14,12 @@ export interface FindState {
   matches: FindMatch[];
   /** Index into `matches` of the match the bar is on, or -1 when there are none. */
   current: number;
+  /** Counts the actions that asked for the current match to be brought into view. */
+  reveal: number;
   decorations: DecorationSet;
 }
 
-/** What the bar tells the plugin, as transaction meta. All of them leave the current match selected and in view. */
+/** What the bar tells the plugin, as transaction meta. All of them leave the current match selected and scrolled into view. */
 export type FindAction =
   /** A new search; the current match is the first one at or after the caret, else the first. */
   | { type: "search"; query: string; caseSensitive: boolean }
@@ -46,7 +48,7 @@ const decorate = (state: EditorState, matches: FindMatch[], current: number) =>
     matches.map((m, i) => Decoration.inline(m.from, m.to, { class: i === current ? "find-match find-current" : "find-match" })),
   );
 
-const EMPTY: Omit<FindState, "decorations"> = { query: "", caseSensitive: false, matches: [], current: -1 };
+const EMPTY: Omit<FindState, "decorations"> = { query: "", caseSensitive: false, matches: [], current: -1, reveal: 0 };
 
 export interface FindPluginOptions {
   /** Esc was pressed in the page while the bar is open. */
@@ -70,24 +72,30 @@ export function findPlugin({ onEscape }: FindPluginOptions = {}): Plugin<FindSta
         else if (action?.type === "from") current = indexFrom(matches, action.pos);
         else if (action?.type === "step") current = matches.length ? (prev.current + action.delta + matches.length) % matches.length : -1;
         else current = matches.length ? Math.min(Math.max(prev.current, 0), matches.length - 1) : -1; // the text changed under us
-        return { query, caseSensitive, matches, current, decorations: decorate(state, matches, current) };
+        const reveal = action ? prev.reveal + 1 : prev.reveal;
+        return { query, caseSensitive, matches, current, reveal, decorations: decorate(state, matches, current) };
       },
     },
-    // Whatever the bar asked for, the current match ends up selected and in view. The bar's field keeps the
-    // focus, so this does not move the caret on screen; Esc hands the page the selection.
+    // Whatever the bar asked for, the current match ends up selected. The bar's field keeps the focus, so
+    // this does not move the caret on screen; Esc hands the page the selection.
     appendTransaction(trs, _old, state) {
       if (!trs.some((tr) => tr.getMeta(findKey))) return null;
       const find = findKey.getState(state);
       const match = find?.matches[find.current];
-      if (!match) return null;
-      const tr = state.tr.scrollIntoView().setMeta("addToHistory", false);
-      if (state.selection.from !== match.from || state.selection.to !== match.to) tr.setSelection(TextSelection.create(state.doc, match.from, match.to));
-      return tr;
+      if (!match || (state.selection.from === match.from && state.selection.to === match.to)) return null;
+      return state.tr.setSelection(TextSelection.create(state.doc, match.from, match.to)).setMeta("addToHistory", false);
     },
+    // ProseMirror's own scrolling to the selection only works while the page has the focus, and here the
+    // bar's field has it. So the match is scrolled to as an element, once the decorations are in the page.
+    view: () => ({
+      update(view, prev) {
+        const find = findKey.getState(view.state);
+        if (!find || find.reveal === findKey.getState(prev)?.reveal) return;
+        view.dom.querySelector(".find-current")?.scrollIntoView?.({ block: "nearest" });
+      },
+    }),
     props: {
       decorations: (state) => findKey.getState(state)?.decorations,
-      // keep a match clear of the dock floating over the foot of the page
-      scrollMargin: { top: 80, right: 5, bottom: 120, left: 5 },
       handleKeyDown(_view, event) {
         if (event.key !== "Escape" || !onEscape) return false;
         onEscape();
