@@ -13,12 +13,21 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// A new, empty file next to `path` that no other write owns. The name differs per call, so
 /// two saves of one path at once never share a temp file.
-fn create_temp(path: &Path, name: &str) -> io::Result<(File, PathBuf)> {
+/// With `private`, only the user can read it (unix), from its first byte on.
+fn create_temp(path: &Path, name: &str, private: bool) -> io::Result<(File, PathBuf)> {
+    let mut options = OpenOptions::new();
+    // `create_new` never reuses a file that is already there, e.g. left by a crashed run
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if private {
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
     loop {
         let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let temp = path.with_file_name(format!(".{name}.{}-{n}.docbro-tmp", std::process::id()));
-        // `create_new` never reuses a file that is already there, e.g. left by a crashed run
-        match OpenOptions::new().write(true).create_new(true).open(&temp) {
+        match options.open(&temp) {
             Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
             opened => return opened.map(|file| (file, temp)),
         }
@@ -29,11 +38,21 @@ fn create_temp(path: &Path, name: &str) -> io::Result<(File, PathBuf)> {
 /// bytes go to a hidden file in the same folder first, which then replaces `path` in one step.
 /// Writes to one path may overlap: the last rename wins and the file is always one complete payload.
 pub fn write_atomic(path: &Path, data: &[u8]) -> CmdResult<()> {
+    write_replacing(path, data, false)
+}
+
+/// `write_atomic` for a file holding secrets: it is readable by the user only (mode 0600 on
+/// unix), and replacing a file that was readable by others leaves it private too.
+pub fn write_private(path: &Path, data: &[u8]) -> CmdResult<()> {
+    write_replacing(path, data, true)
+}
+
+fn write_replacing(path: &Path, data: &[u8], private: bool) -> CmdResult<()> {
     let name = path
         .file_name()
         .ok_or_else(|| format!("Cannot write {}: it has no file name", path.display()))?;
     let failed = |e: io::Error| format!("Cannot write {}: {e}", path.display());
-    let (mut file, temp) = create_temp(path, &name.to_string_lossy()).map_err(failed)?;
+    let (mut file, temp) = create_temp(path, &name.to_string_lossy(), private).map_err(failed)?;
     let written = (|| -> io::Result<()> {
         file.write_all(data)?;
         file.sync_all()?;
@@ -87,6 +106,22 @@ mod tests {
         write_atomic(&p, b"one").unwrap();
         write_atomic(&p, b"two").unwrap();
         assert_eq!(fs::read(&p).unwrap(), b"two");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_write_is_private_even_over_a_public_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmp("private");
+        let p = dir.join("servers.json");
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        write_private(&p, b"one").unwrap();
+        assert_eq!(mode(&p), 0o600);
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&p, b"two").unwrap();
+        assert_eq!((fs::read(&p).unwrap(), mode(&p)), (b"two".to_vec(), 0o600));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(&dir).unwrap();
     }

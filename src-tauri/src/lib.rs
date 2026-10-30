@@ -1,6 +1,8 @@
 mod calls;
 mod files;
 mod mcp;
+mod mcp_client;
+mod servers;
 
 use std::{
     collections::HashMap,
@@ -52,6 +54,8 @@ struct AppState {
     mcp: Mutex<mcp::Runtime>,
     /// Tool calls sent to a window that wait for its answer
     calls: calls::Calls,
+    /// The user's MCP servers for the Assistant, and their live connections
+    servers: Mutex<servers::Servers>,
 }
 
 impl AppState {
@@ -62,6 +66,7 @@ impl AppState {
             pending_open: Mutex::new(HashMap::new()),
             mcp: Mutex::new(mcp::Runtime::load()),
             calls: calls::Calls::default(),
+            servers: Mutex::new(servers::Servers::load()),
         }
     }
 
@@ -454,6 +459,11 @@ pub fn run() {
             mcp::mcp_set_enabled,
             mcp::mcp_regenerate_token,
             calls::mcp_reply,
+            servers::servers_list,
+            servers::servers_save,
+            servers::servers_remove,
+            servers::servers_set_enabled,
+            servers::servers_test,
         ])
         .build(tauri::generate_context!())
         .expect("error while building DocBro");
