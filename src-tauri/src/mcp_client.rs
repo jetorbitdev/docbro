@@ -4,8 +4,10 @@
 
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
-    fmt,
+    ffi::{OsStr, OsString},
+    fmt, fs,
     io::{self, BufRead, BufReader, ErrorKind, Read, Write},
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -23,8 +25,9 @@ const MAX_MESSAGE: u64 = 4 * 1024 * 1024;
 const STDERR_TAIL: usize = 4096;
 /// A server whose tool list goes on for more pages than this is treated as broken.
 const MAX_PAGES: usize = 50;
-/// Environment variables a stdio server gets from DocBro; everything else it needs is configured.
-const INHERITED_ENV: &[&str] = &["PATH", "HOME", "USER", "LANG", "TMPDIR"];
+/// Environment variables a stdio server gets from DocBro; everything else it needs is
+/// configured. `PATH` is made by `child_path`.
+const INHERITED_ENV: &[&str] = &["HOME", "USER", "LANG", "TMPDIR"];
 const INHERITED_ENV_WINDOWS: &[&str] = &["SystemRoot", "USERPROFILE", "APPDATA", "PATHEXT"];
 
 // ------------------------------------------------------------------- settings
@@ -591,6 +594,57 @@ impl Wire for HttpWire {
 
 // --------------------------------------------------------------------- stdio
 
+/// The `PATH` a stdio server starts with. An app opened from the Finder inherits only
+/// `/usr/bin:/bin:/usr/sbin:/sbin`, where `npx`, `uvx` and the `node` their scripts ask for
+/// (`#!/usr/bin/env node`) are missing. So: the command's own folder first, then the inherited
+/// `PATH`, then (macOS and Linux) the usual install folders that exist. A `PATH` in the
+/// server's configured env replaces all of this.
+fn child_path(
+    command: &str,
+    inherited: &OsStr,
+    home: Option<&Path>,
+    nvm_bin: Option<&Path>,
+    exists: &dyn Fn(&Path) -> bool,
+) -> OsString {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut add = |dir: PathBuf| {
+        // an empty entry means the working folder, which a server should not run from
+        if !dir.as_os_str().is_empty() && !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    };
+    let command = Path::new(command);
+    if command.is_absolute() {
+        if let Some(folder) = command.parent() {
+            add(folder.to_path_buf());
+        }
+    }
+    std::env::split_paths(inherited).for_each(&mut add);
+    if cfg!(unix) {
+        let mut common = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
+        if let Some(home) = home {
+            common.extend([home.join(".local/bin"), home.join(".cargo/bin")]);
+        }
+        common.extend(nvm_bin.map(Path::to_path_buf));
+        common.into_iter().filter(|d| exists(d)).for_each(&mut add);
+    }
+    std::env::join_paths(&dirs).unwrap_or_else(|_| inherited.to_os_string())
+}
+
+/// The `bin` folder of the newest Node.js that nvm installed.
+fn newest_nvm_bin(home: &Path) -> Option<PathBuf> {
+    let version = |name: &str| -> Option<Vec<u64>> {
+        name.strip_prefix('v')?.split('.').map(|part| part.parse().ok()).collect()
+    };
+    fs::read_dir(home.join(".nvm/versions/node"))
+        .ok()?
+        .flatten()
+        .filter_map(|e| Some((version(&e.file_name().to_string_lossy())?, e.path().join("bin"))))
+        .filter(|(_, bin)| bin.is_dir())
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, bin)| bin)
+}
+
 enum Incoming {
     Message(Value),
     TooLong,
@@ -618,6 +672,11 @@ impl StdioWire {
                 cmd.env(key, value);
             }
         }
+        // a bare command name is looked up in this PATH too (unix)
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let nvm = home.as_deref().and_then(newest_nvm_bin);
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        cmd.env("PATH", child_path(command, &inherited, home.as_deref(), nvm.as_deref(), &|p| p.is_dir()));
         cmd.envs(env);
         #[cfg(windows)]
         {
@@ -840,7 +899,10 @@ pub(crate) mod tests {
     fn fake_stdio_server() {
         let Ok(mode) = std::env::var("DOCBRO_FAKE_MCP") else { return };
         if let Some(mark) = std::env::var_os("DOCBRO_FAKE_MARK") {
-            fs::write(mark, b"started").unwrap();
+            fs::write(mark, std::process::id().to_string()).unwrap();
+        }
+        if mode == "slowstart" {
+            thread::sleep(Duration::from_secs(1));
         }
         // ends the line libtest may have started, then logs like real servers do
         println!();
@@ -1287,8 +1349,12 @@ pub(crate) mod tests {
         // the child sees its configured env and a minimal part of DocBro's
         let env: BTreeMap<String, String> = serde_json::from_str(&conn.call_tool("env", &json!({})).unwrap().text).unwrap();
         assert_eq!(env.get("FAKE_TOKEN").map(String::as_str), Some("t-1"));
-        if let Ok(path) = std::env::var("PATH") {
-            assert_eq!(env.get("PATH"), Some(&path));
+        // its PATH starts with the command's folder and keeps DocBro's
+        let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_string_lossy().into_owned();
+        let child: Vec<String> = std::env::split_paths(&env["PATH"]).map(|p| p.to_string_lossy().into_owned()).collect();
+        assert_eq!(child[0], exe_dir);
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|d| !d.as_os_str().is_empty()) {
+            assert!(child.contains(&dir.to_string_lossy().into_owned()), "{dir:?} is missing from {child:?}");
         }
         // cargo sets these for the test process; they must not leak into the child
         for leaked in ["CARGO_MANIFEST_DIR", "CARGO_PKG_NAME", "RUST_BACKTRACE"] {
@@ -1358,5 +1424,90 @@ pub(crate) mod tests {
         assert_eq!(saved, json!({ "transport": "http", "url": "https://x.example/mcp", "headers": {} }));
         let back: ServerSpec = serde_json::from_value(json!({ "transport": "stdio", "command": "srv" })).unwrap();
         assert_eq!(back, ServerSpec::Stdio { command: "srv".into(), args: vec![], env: BTreeMap::new() });
+    }
+
+    // -- the child's PATH ------------------------------------------------------
+
+    #[cfg(unix)]
+    fn path_of(command: &str, inherited: &str, home: Option<&str>, nvm: Option<&str>, present: &[&str]) -> String {
+        let exists = |p: &Path| present.iter().any(|q| Path::new(q) == p);
+        child_path(command, OsStr::new(inherited), home.map(Path::new), nvm.map(Path::new), &exists)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn child_path_puts_the_commands_directory_first() {
+        assert_eq!(path_of("/opt/tools/bin/srv", "/usr/bin:/bin", None, None, &[]), "/opt/tools/bin:/usr/bin:/bin");
+        // a folder already in PATH comes first and only once
+        assert_eq!(path_of("/usr/bin/srv", "/bin:/usr/bin", None, None, &[]), "/usr/bin:/bin");
+        // a bare name adds nothing; empty entries (the working folder) are dropped
+        assert_eq!(path_of("npx", "/usr/bin::/bin", None, None, &[]), "/usr/bin:/bin");
+        assert_eq!(path_of("/opt/x/srv", "", None, None, &[]), "/opt/x");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn child_path_appends_only_existing_common_directories_without_duplicates() {
+        let nvm = "/Users/me/.nvm/versions/node/v22.1.0/bin";
+        let present = ["/opt/homebrew/bin", "/usr/local/bin", "/Users/me/.cargo/bin", nvm];
+        assert_eq!(
+            path_of("npx", "/usr/bin:/bin:/usr/local/bin", Some("/Users/me"), Some(nvm), &present),
+            format!("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin:/Users/me/.cargo/bin:{nvm}")
+        );
+        // nothing exists: nothing is added
+        assert_eq!(path_of("npx", "/usr/bin", Some("/Users/me"), Some(nvm), &[]), "/usr/bin");
+
+        // the newest Node.js by version, not by name
+        let home = std::env::temp_dir().join(format!("docbro-nvm-test-{}", std::process::id()));
+        let versions = home.join(".nvm/versions/node");
+        for v in ["v9.0.0", "v18.2.0", "v20.10.1", "v20.9.0"] {
+            fs::create_dir_all(versions.join(v).join("bin")).unwrap();
+        }
+        fs::create_dir_all(versions.join("v99.0.0")).unwrap(); // no bin folder
+        fs::create_dir_all(versions.join("system")).unwrap();
+        assert_eq!(newest_nvm_bin(&home), Some(versions.join("v20.10.1/bin")));
+        assert_eq!(newest_nvm_bin(Path::new("/nonexistent-docbro-home")), None);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_configured_path_overrides_the_computed_one() {
+        let spec = fake_stdio("1", &[("PATH", "/docbro/only")]);
+        let mut conn = connect_with("Fake", &spec, Timeouts::default()).unwrap();
+        let env: BTreeMap<String, String> = serde_json::from_str(&conn.call_tool("env", &json!({})).unwrap().text).unwrap();
+        assert_eq!(env["PATH"], "/docbro/only");
+    }
+
+    /// `start-server` runs `docbro-fake-helper` by bare name, as `#!/usr/bin/env node` finds
+    /// `node`: it only works when the command's own folder is on the child's PATH.
+    #[cfg(unix)]
+    #[test]
+    fn a_script_finds_its_neighbours_through_the_commands_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("docbro-path-script-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let scripts = [
+            ("docbro-fake-helper", format!("#!/bin/sh\nexec '{}' --exact mcp_client::tests::fake_stdio_server --ignored --nocapture\n", exe.display())),
+            ("start-server", "#!/bin/sh\nexec docbro-fake-helper\n".to_string()),
+        ];
+        for (name, body) in &scripts {
+            fs::write(dir.join(name), body).unwrap();
+            fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let spec = |extra: &[(&str, &str)]| {
+            let mut env: BTreeMap<String, String> = extra.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            env.insert("DOCBRO_FAKE_MCP".into(), "1".into());
+            ServerSpec::Stdio { command: dir.join("start-server").to_string_lossy().into_owned(), args: vec![], env }
+        };
+        let mut conn = connect_with("Script", &spec(&[]), Timeouts::default()).unwrap();
+        assert_eq!(conn.list_tools().unwrap().len(), 4);
+        // with PATH pinned to the system folders, the helper is not found
+        let e = err(connect_with("Script", &spec(&[("PATH", "/usr/bin:/bin")]), Timeouts::default()));
+        assert!(e.starts_with("Script: ") && e.contains("stopped"), "{e}");
+        drop(conn);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -55,7 +55,7 @@ struct AppState {
     /// Tool calls sent to a window that wait for its answer
     calls: calls::Calls,
     /// The user's MCP servers for the Assistant, and their live connections
-    servers: Mutex<servers::Servers>,
+    servers: servers::Servers,
 }
 
 impl AppState {
@@ -66,7 +66,7 @@ impl AppState {
             pending_open: Mutex::new(HashMap::new()),
             mcp: Mutex::new(mcp::Runtime::load()),
             calls: calls::Calls::default(),
-            servers: Mutex::new(servers::Servers::load()),
+            servers: servers::Servers::load(),
         }
     }
 
