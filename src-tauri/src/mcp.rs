@@ -994,6 +994,47 @@ mod tests {
         assert!(closed, "port {port} still accepts connections after stop");
     }
 
+    /// Sends `head` (and `body`), half-closes when asked, and returns the status code of the
+    /// answer without waiting for the connection to close.
+    fn status_line(port: u16, head: &str, body: &[u8], close_after: bool) -> u16 {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(head.as_bytes()).unwrap();
+        s.write_all(body).unwrap();
+        if close_after {
+            s.shutdown(std::net::Shutdown::Write).unwrap();
+        }
+        let mut got = Vec::new();
+        let mut buf = [0u8; 512];
+        while !got.windows(2).any(|w| w == b"\r\n") {
+            let n = s.read(&mut buf).unwrap();
+            assert!(n > 0, "connection closed before an answer");
+            got.extend_from_slice(&buf[..n]);
+        }
+        String::from_utf8_lossy(&got).split_whitespace().nth(1).unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn a_lying_content_length_cannot_take_the_app_down() {
+        let host = TestHost::new();
+        let (_server, port) = start(&host);
+        // claims an absurd body, sends one byte and keeps the connection open: before the fix,
+        // dropping the refused request allocated the claimed size and aborted the process
+        let huge = format!("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 4611686018427387904\r\n\r\n");
+        assert_eq!(status_line(port, &huge, b"x", false), 401);
+        // claims more than it sends, then hangs up
+        let short = "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Length: 5000\r\n\r\n";
+        assert_eq!(status_line(port, short, &[b'x'; 10], true), 403);
+        // a refused body over the drain limit, sent in full
+        let big = format!("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 200000\r\n\r\n");
+        assert_eq!(status_line(port, &big, &[b' '; 200_000], true), 401);
+
+        std::thread::sleep(Duration::from_millis(200));
+        let auth = format!("Authorization: Bearer {TOKEN}\r\n");
+        let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &auth, ping)).0, 200);
+    }
+
     #[test]
     fn rejects_a_port_that_is_taken() {
         let host = TestHost::new();
