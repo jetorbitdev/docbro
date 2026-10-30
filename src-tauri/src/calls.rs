@@ -14,7 +14,7 @@ use std::{
         Mutex,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::{json, Value};
@@ -29,6 +29,8 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a window that was just opened gets to mount its editor
 pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_POLL: Duration = Duration::from_millis(50);
+/// How long before Rust gives up a call the window stops starting it
+const DEADLINE_MARGIN: Duration = Duration::from_secs(2);
 
 const TIMED_OUT: &str = "DocBro did not answer in time. Is a dialog open in the document window?";
 const CLOSED: &str = "The document window was closed.";
@@ -111,6 +113,15 @@ fn is_ready(state: &AppState, label: &str) -> bool {
     state.windows.lock_recovering().get(label).is_some_and(|d| d.ready)
 }
 
+/// The `mcp-call` event: `{ id, name, args, deadline }`. `deadline` (Unix time in ms) comes
+/// `DEADLINE_MARGIN` before Rust stops waiting, and the window refuses a call it would start
+/// after it. A call the client was told timed out is then never applied behind its back, where
+/// a retry of a tool such as `insert_content` would apply it twice.
+fn call_payload(id: u64, name: &str, args: &Value, now_ms: u64, timeout: Duration) -> Value {
+    let wait_ms = u64::try_from(timeout.saturating_sub(DEADLINE_MARGIN).as_millis()).unwrap_or(u64::MAX);
+    json!({ "id": id, "name": name, "args": args, "deadline": now_ms.saturating_add(wait_ms) })
+}
+
 /// Runs tool `name` in window `label` and returns its answer. With no such window, it opens
 /// one with that label (an empty document) and waits up to `READY_TIMEOUT` for its editor.
 ///
@@ -137,7 +148,8 @@ pub fn call_in_window(app: &AppHandle, label: &str, name: &str, args: &Value) ->
         state.calls.forget(id);
         return Err(CLOSED.into());
     }
-    let payload = json!({ "id": id, "name": name, "args": args });
+    let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let payload = call_payload(id, name, args, now_ms, CALL_TIMEOUT);
     if let Err(e) = app.emit_to(label, "mcp-call", payload) {
         state.calls.forget(id);
         return Err(format!("Could not reach the document window: {e}"));
@@ -209,6 +221,20 @@ mod tests {
         assert!(calls.finish(other, Ok("fine".into())));
         assert_eq!(calls.wait(other, other_rx, SHORT), Ok("fine".into()));
         assert!(!calls.finish(closing, Ok("late".into())));
+    }
+
+    #[test]
+    fn a_call_carries_the_deadline_after_which_the_window_must_not_run_it() {
+        let args = serde_json::json!({ "from": 2 });
+        let payload = call_payload(7, "delete_blocks", &args, 1_000_000, CALL_TIMEOUT);
+        // 2 s before Rust gives up, so a call the window starts late is refused, not applied
+        assert_eq!(
+            payload,
+            serde_json::json!({ "id": 7, "name": "delete_blocks", "args": { "from": 2 }, "deadline": 1_028_000u64 })
+        );
+        // a timeout shorter than the margin does not underflow: the deadline is now
+        assert_eq!(call_payload(1, "undo", &args, 5_000, SHORT)["deadline"], 5_000);
+        assert_eq!(call_payload(1, "undo", &args, u64::MAX, CALL_TIMEOUT)["deadline"], u64::MAX);
     }
 
     #[test]
