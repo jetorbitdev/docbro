@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ use crate::{calls, AppState, CmdResult, LockExt};
 
 pub const DEFAULT_PORT: u16 = 7425;
 const MAX_BODY: usize = 8 * 1024 * 1024;
+/// How long a restart on the same port waits for the old listener to let go of it
+const REBIND_PATIENCE: Duration = Duration::from_secs(1);
 
 /// Protocol revisions we can speak: the tools-only subset is identical in all of them.
 pub(crate) const PROTOCOLS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -65,15 +67,14 @@ fn new_token() -> CmdResult<String> {
 
 impl Config {
     fn load() -> Config {
-        config_path()
-            .ok()
-            .and_then(|p| fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        config_path().map(|p| Config::load_from(&p)).unwrap_or_default()
     }
 
-    fn save(&self) -> CmdResult<()> {
-        self.save_to(&config_path()?)
+    fn load_from(path: &Path) -> Config {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
     }
 
     /// The token is a credential, so the file is private to the user.
@@ -111,20 +112,35 @@ impl Host for TauriHost {
 struct Running {
     server: Arc<Server>,
     thread: Option<JoinHandle<()>>,
+    /// the port it listens on
+    port: u16,
 }
 
 impl Running {
-    fn start<H: Host>(host: Arc<H>, port: u16, token: Arc<Mutex<String>>) -> CmdResult<(Running, u16)> {
-        let server = Server::http(("127.0.0.1", port)).map_err(|e| {
+    /// Listens on `port`. While the port is in use, it tries again for up to `patience`.
+    fn start<H: Host>(
+        host: Arc<H>,
+        port: u16,
+        token: Arc<Mutex<String>>,
+        patience: Duration,
+    ) -> CmdResult<Running> {
+        let deadline = Instant::now() + patience;
+        let server = loop {
+            let e = match Server::http(("127.0.0.1", port)) {
+                Ok(server) => break server,
+                Err(e) => e,
+            };
             let in_use = e
                 .downcast_ref::<io::Error>()
                 .is_some_and(|e| e.kind() == io::ErrorKind::AddrInUse);
-            if in_use {
-                format!("Port {port} is already in use. Choose another port.")
-            } else {
-                format!("Could not listen on port {port}: {e}")
+            if !in_use {
+                return Err(format!("Could not listen on port {port}: {e}"));
             }
-        })?;
+            if Instant::now() >= deadline {
+                return Err(format!("Port {port} is already in use. Choose another port."));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
         let bound = server
             .server_addr()
             .to_ip()
@@ -139,7 +155,7 @@ impl Running {
                 std::thread::spawn(move || handle_http(&*host, &token, bound, req));
             }
         });
-        Ok((Running { server, thread: Some(thread) }, bound))
+        Ok(Running { server, thread: Some(thread), port: bound })
     }
 }
 
@@ -155,6 +171,8 @@ impl Drop for Running {
 /// Settings plus the live server; kept in `AppState`.
 pub struct Runtime {
     config: Config,
+    /// where `config` is saved
+    file: CmdResult<PathBuf>,
     token: Arc<Mutex<String>>,
     running: Option<Running>,
     error: Option<String>,
@@ -174,33 +192,63 @@ pub struct Status {
 
 impl Runtime {
     pub fn load() -> Runtime {
-        let mut config = Config::load();
+        Runtime::at(config_path())
+    }
+
+    /// The runtime whose settings live in `file`.
+    fn at(file: CmdResult<PathBuf>) -> Runtime {
+        let mut config = file.as_deref().map(Config::load_from).unwrap_or_default();
         if config.token.is_empty() {
             config.token = new_token().unwrap_or_default();
         }
         Runtime {
             token: Arc::new(Mutex::new(config.token.clone())),
             config,
+            file,
             running: None,
             error: None,
         }
     }
 
+    fn save(&self) -> CmdResult<()> {
+        self.config.save_to(self.file.as_deref().map_err(Clone::clone)?)
+    }
+
+    /// Turns the server on at `port`. A server already listening there is left as it is.
+    fn enable<H: Host>(&mut self, host: Arc<H>, port: u16) -> CmdResult<()> {
+        if self.running.as_ref().is_some_and(|r| r.port == port) {
+            return Ok(());
+        }
+        self.start(host, port)
+    }
+
+    /// (Re)starts the server on `port`. When that fails, the status says it is on but not
+    /// running, with the reason, and the next launch tries again.
     fn start<H: Host>(&mut self, host: Arc<H>, port: u16) -> CmdResult<()> {
+        let started = self.try_start(host, port);
+        if let Err(e) = &started {
+            self.running = None;
+            self.config.enabled = true;
+            self.config.port = port;
+            self.error = Some(e.clone());
+            let _ = self.save();
+        }
+        started
+    }
+
+    fn try_start<H: Host>(&mut self, host: Arc<H>, port: u16) -> CmdResult<()> {
         if self.config.token.is_empty() {
             self.config.token = new_token()?;
             *self.token.lock_recovering() = self.config.token.clone();
         }
-        // let go of the old listener first, or restarting on the same port would collide with it
-        self.running = None;
-        let (running, bound) = Running::start(host, port, self.token.clone())?;
-        let previous = self.config.clone();
+        // let go of the old listener first, or restarting on the same port would collide with
+        // it. The OS frees the port a moment after, so a restart there waits for it a little.
+        let old_port = self.running.take().map(|old| old.port);
+        let patience = if old_port == Some(port) { REBIND_PATIENCE } else { Duration::ZERO };
+        let running = Running::start(host, port, self.token.clone(), patience)?;
         self.config.enabled = true;
-        self.config.port = bound;
-        if let Err(e) = self.config.save() {
-            self.config = previous;
-            return Err(e);
-        }
+        self.config.port = running.port;
+        self.save()?;
         self.running = Some(running);
         self.error = None;
         Ok(())
@@ -210,13 +258,13 @@ impl Runtime {
         self.running = None;
         self.error = None;
         self.config.enabled = false;
-        self.config.save()
+        self.save()
     }
 
     fn regenerate_token(&mut self) -> CmdResult<()> {
         let token = new_token()?;
         self.config.token = token.clone();
-        self.config.save()?;
+        self.save()?;
         // requests already carrying the old token are refused from now on
         *self.token.lock_recovering() = token;
         Ok(())
@@ -244,9 +292,8 @@ pub fn autostart(app: &AppHandle) {
     let mut rt = state.mcp.lock_recovering();
     if rt.config.enabled {
         let port = rt.config.port;
-        if let Err(e) = rt.start(Arc::new(TauriHost(app.clone())), port) {
-            rt.error = Some(e);
-        }
+        // a failure is kept in the status for the settings panel
+        let _ = rt.start(Arc::new(TauriHost(app.clone())), port);
     }
 }
 
@@ -268,7 +315,7 @@ pub fn mcp_set_enabled(
         if port < 1024 {
             return Err("Choose a port between 1024 and 65535".into());
         }
-        rt.start(Arc::new(TauriHost(app)), port)?;
+        rt.enable(Arc::new(TauriHost(app)), port)?;
     } else {
         rt.disable()?;
     }
@@ -885,7 +932,9 @@ mod tests {
     const TOKEN: &str = "t0ken";
 
     fn start(host: &Arc<TestHost>) -> (Running, u16) {
-        Running::start(host.clone(), 0, Arc::new(Mutex::new(TOKEN.into()))).unwrap()
+        let running = Running::start(host.clone(), 0, Arc::new(Mutex::new(TOKEN.into())), Duration::ZERO).unwrap();
+        let port = running.port;
+        (running, port)
     }
 
     /// Sends a hand-written request and returns (status, body).
@@ -1036,10 +1085,51 @@ mod tests {
     }
 
     #[test]
+    fn restart_on_the_same_port_succeeds_every_time() {
+        let host = TestHost::new();
+        let mut rt = Runtime::at(Ok(tmp("restart/mcp.json")));
+        rt.start(host.clone(), 0).unwrap();
+        let port = rt.status().port;
+        // the old listener is released a moment after it is dropped
+        for i in 0..50 {
+            rt.start(host.clone(), port).unwrap_or_else(|e| panic!("restart {i}: {e}"));
+            assert!(rt.status().running && rt.status().error.is_none());
+        }
+        // applying the port it already listens on leaves the server alone
+        let server = Arc::as_ptr(&rt.running.as_ref().unwrap().server);
+        rt.enable(host.clone(), port).unwrap();
+        assert_eq!(Arc::as_ptr(&rt.running.as_ref().unwrap().server), server);
+
+        let auth = format!("Authorization: Bearer {}\r\n", rt.config.token);
+        let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &auth, ping)).0, 200);
+    }
+
+    #[test]
+    fn a_failed_start_records_the_error_in_the_status() {
+        let host = TestHost::new();
+        let (_taken, port) = start(&host);
+        let path = tmp("failed/mcp.json");
+        let _ = fs::remove_file(&path);
+        let mut rt = Runtime::at(Ok(path));
+        let err = rt.enable(host.clone(), port).unwrap_err();
+        assert!(err.contains("already in use"), "{err}");
+        // the user asked for it on: the status says so, and why it is not running
+        let status = rt.status();
+        assert!(status.enabled && !status.running);
+        assert_eq!(status.port, port);
+        assert_eq!(status.error.as_deref(), Some(err.as_str()));
+
+        // a start that works clears the error
+        rt.enable(host.clone(), 0).unwrap();
+        assert!(rt.status().running && rt.status().error.is_none());
+    }
+
+    #[test]
     fn rejects_a_port_that_is_taken() {
         let host = TestHost::new();
         let (_server, port) = start(&host);
-        let err = Running::start(host.clone(), port, Arc::new(Mutex::new(TOKEN.into())))
+        let err = Running::start(host.clone(), port, Arc::new(Mutex::new(TOKEN.into())), Duration::ZERO)
             .err()
             .unwrap();
         assert!(err.contains("already in use"), "{err}");
