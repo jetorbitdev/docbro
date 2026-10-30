@@ -334,21 +334,22 @@ impl Servers {
             drop(connected);
             return Err(format!("{name} changed while DocBro was connecting to it"));
         };
-        match connected {
-            Ok((conn, tools)) => match entry.live.clone() {
-                // another caller connected first: use that one, and stop ours
-                Some(first) => {
-                    drop(reg);
-                    drop(conn);
-                    Ok(first)
-                }
-                None => {
-                    let live: Live = Arc::new(Mutex::new(conn));
-                    (entry.live, entry.tools, entry.error, entry.failed_at) = (Some(live.clone()), tools, None, None);
-                    Ok(live)
-                }
-            },
-            Err(e) => {
+        match (connected, entry.live.clone()) {
+            // another caller connected first: use that one, and stop ours
+            (Ok((conn, _)), Some(first)) => {
+                drop(reg);
+                drop(conn);
+                Ok(first)
+            }
+            // this attempt failed while another caller connected (a server that cannot run
+            // twice fails the second start): the working connection stays, with no error
+            (Err(_), Some(first)) => Ok(first),
+            (Ok((conn, tools)), None) => {
+                let live: Live = Arc::new(Mutex::new(conn));
+                (entry.live, entry.tools, entry.error, entry.failed_at) = (Some(live.clone()), tools, None, None);
+                Ok(live)
+            }
+            (Err(e), None) => {
                 let old = entry.fail(e.clone());
                 drop(reg);
                 drop(old);
@@ -861,5 +862,79 @@ mod tests {
         assert!(s.call("web", "slow", &json!({})).is_err());
         assert_eq!(s.views()[0].status, "error");
         assert!(s.lock().entries[0].live.is_none());
+    }
+
+    /// Connect A succeeds at about 300 ms; connect B, started earlier, fails at about 900 ms
+    /// (a server that cannot run twice). B must not undo A.
+    #[test]
+    fn a_failed_duplicate_connect_leaves_the_good_connection_alone() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = count.clone();
+        let fake = FakeHttp::start(move |m, _| {
+            if m["method"] != "initialize" {
+                return Reply::standard(m);
+            }
+            match seen.fetch_add(1, Ordering::SeqCst) {
+                0 => {
+                    std::thread::sleep(Duration::from_millis(900));
+                    Reply::status(503, "")
+                }
+                _ => {
+                    std::thread::sleep(Duration::from_millis(300));
+                    Reply::standard(m)
+                }
+            }
+        });
+        let (s, _) = servers("duplicate");
+        s.save(config("web", "Web", false, fake.spec(&[]))).unwrap();
+        // switched on without the connect that `set_enabled` would start
+        s.lock().entries[0].config.enabled = true;
+        let (b, a) = thread::scope(|scope| {
+            let b = scope.spawn(|| s.connect("web", false));
+            while count.load(Ordering::SeqCst) == 0 {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let a = scope.spawn(|| s.connect("web", false));
+            (b.join().unwrap(), a.join().unwrap())
+        });
+        let a = a.unwrap();
+        // the failed one gets the working connection instead of its error
+        assert!(Arc::ptr_eq(&a, &b.unwrap()));
+        assert_eq!(initializes(&fake), 2);
+        {
+            let reg = s.lock();
+            let e = &reg.entries[0];
+            assert!(e.live.as_ref().is_some_and(|l| Arc::ptr_eq(l, &a)));
+            assert!(e.error.is_none() && e.failed_at.is_none(), "{:?}", e.error);
+        }
+        let v = &s.views()[0];
+        assert_eq!((v.status.as_str(), v.tools, v.error.as_deref()), ("ready", 4, None));
+        assert!(!s.call("web", "echo", &json!({})).unwrap().is_error);
+        assert_eq!(initializes(&fake), 2, "the good connection was replaced");
+    }
+
+    #[test]
+    fn two_successful_connects_keep_one_connection() {
+        let fake = FakeHttp::start(|m, _| {
+            if m["method"] == "initialize" {
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            Reply::standard(m)
+        });
+        let (s, _) = servers("two-successes");
+        s.save(config("web", "Web", false, fake.spec(&[]))).unwrap();
+        s.lock().entries[0].config.enabled = true;
+        let (a, b) = thread::scope(|scope| {
+            let a = scope.spawn(|| s.connect("web", false));
+            let b = scope.spawn(|| s.connect("web", false));
+            (a.join().unwrap().unwrap(), b.join().unwrap().unwrap())
+        });
+        // both callers get the one that was installed; the other was dropped
+        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(initializes(&fake), 2);
+        assert_eq!(Arc::strong_count(&a), 3, "the entry and the two callers hold it, nothing else");
+        let v = &s.views()[0];
+        assert_eq!((v.status.as_str(), v.tools), ("ready", 4));
     }
 }
