@@ -202,10 +202,12 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
+  // the rail takes room from the page, so it is only there when the document has comments to put in it
+  const showComments = layout.showComments && (session?.meta.comments.length ?? 0) > 0;
   const comment = commands.find((c) => c.id === "comment");
   const leftMode = layout.showOutline ? "outline" : layout.outlineRail ? "rail" : "none";
   // the page narrows beside an open comments rail, so a panel that opens or closes can rewrap the text: hold the reading position
-  useReadingAnchor(editor, scroller, [leftMode, layout.assistantOpen, layout.showComments, layout.showMenuBar].join(), resizing);
+  useReadingAnchor(editor, scroller, [leftMode, layout.assistantOpen, showComments, layout.showMenuBar].join(), resizing);
 
   return (
     <div className={`app${resizing ? " snap" : ""}`} data-font={ui.sansFont ? "sans" : undefined}>
@@ -224,7 +226,8 @@ export default function App() {
             onHide={() => run("outline")}
           />
         </div>
-        <main className="main">
+        {/* the page is wider while the assistant is closed */}
+        <main className={`main${layout.assistantOpen ? "" : " wide"}`}>
           <div className="scroll" ref={setScroller}>
             <div className="canvas">
               <Paper editor={editor} large={ui.largerText} paperRef={setPaper}>
@@ -242,15 +245,15 @@ export default function App() {
               </Paper>
               {/* the comment cards (Task 13) go in .comments-inner, which keeps its width while the rail opens */}
               <div
-                className={`comments-rail${layout.showComments ? " open" : ""}`}
-                inert={!layout.showComments}
-                aria-hidden={layout.showComments ? undefined : true}
+                className={`comments-rail${showComments ? " open" : ""}`}
+                inert={!showComments}
+                aria-hidden={showComments ? undefined : true}
               >
                 <div className="comments-inner" />
               </div>
             </div>
           </div>
-          <Dock editor={editor} run={run} />
+          <Dock editor={editor} run={run} commentsOpen={showComments} />
         </main>
         {/* mock 231–239: the panel's header; its body comes with Tasks 12 and 17 */}
         <aside
