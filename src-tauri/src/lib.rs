@@ -16,6 +16,7 @@ use std::{
 use tauri::{
     ipc::{InvokeBody, Request, Response},
     menu::{Menu, MenuItemBuilder, SubmenuBuilder},
+    webview::PageLoadEvent,
     AppHandle, Emitter, Manager, Runtime, State, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -148,6 +149,16 @@ fn set_doc_meta(
 #[tauri::command]
 fn editor_ready(window: Window, state: State<AppState>) {
     state.windows.lock_recovering().entry(window.label().to_string()).or_default().ready = true;
+}
+
+/// Window `label` is loading its page again (a reload): its editor is gone until the new one
+/// reports `editor_ready`, so new calls wait for that and the calls it had fail now instead of
+/// waiting out the timeout. The flag goes before the calls fail, as when a window closes.
+fn page_reloading(windows: &Mutex<HashMap<String, WindowDoc>>, calls: &calls::Calls, label: &str) {
+    if let Some(doc) = windows.lock_recovering().get_mut(label) {
+        doc.ready = false;
+    }
+    calls.fail_window(label);
 }
 
 #[tauri::command]
@@ -437,6 +448,12 @@ pub fn run() {
             let label = app.state::<AppState>().active_label();
             let _ = app.emit_to(label.as_str(), "menu", id);
         })
+        .on_page_load(|webview, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                let state = webview.state::<AppState>();
+                page_reloading(&state.windows, &state.calls, webview.window().label());
+            }
+        })
         .on_window_event(|window, event| {
             let state = window.state::<AppState>();
             let label = window.label();
@@ -550,5 +567,27 @@ mod tests {
             .lock_recovering()
             .insert("doc-2".into(), WindowDoc { dirty: true, ..blank() });
         assert!(!state.untouched("doc-2"));
+    }
+
+    #[test]
+    fn a_reloading_window_is_not_ready_and_its_calls_fail_at_once() {
+        let windows = Mutex::new(HashMap::from([
+            ("doc-1".to_string(), WindowDoc { ready: true, ..blank() }),
+            ("doc-2".to_string(), WindowDoc { ready: true, ..blank() }),
+        ]));
+        let calls = calls::Calls::default();
+        let (reloading, rx) = calls.begin("doc-1");
+        let (other, other_rx) = calls.begin("doc-2");
+
+        page_reloading(&windows, &calls, "doc-1");
+        assert!(!windows.lock_recovering()["doc-1"].ready);
+        assert_eq!(calls.wait(reloading, rx, calls::CALL_TIMEOUT), Err("The document window was closed.".into()));
+        // the other window keeps its flag and its call
+        assert!(windows.lock_recovering()["doc-2"].ready);
+        assert!(calls.finish(other, Ok("fine".into())));
+        assert_eq!(calls.wait(other, other_rx, calls::CALL_TIMEOUT), Ok("fine".into()));
+        // a window loading its page for the first time has no entry, and gets none
+        page_reloading(&windows, &calls, "doc-3");
+        assert!(!windows.lock_recovering().contains_key("doc-3"));
     }
 }
