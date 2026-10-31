@@ -1,0 +1,57 @@
+/* Assistant panel body (mock 231–329) and MCP settings. The panel's frame and header are in styles.css. */
+.head-btn{height:30px;padding:0 10px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:13px;cursor:pointer}
+.head-btn:hover,.icon-btn:hover{background:var(--hover)}
+.icon-btn{width:30px;height:30px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:15px;cursor:pointer}
+.line-btn{height:28px;padding:0 10px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:7px;font-size:12.5px;cursor:pointer;flex-shrink:0;white-space:nowrap}
+.line-btn:hover:not(:disabled){border-color:var(--accent-ink)}
+.line-btn:disabled{opacity:.45;cursor:default}
+.assistant-panel button:focus-visible,.mcp-sheet button:focus-visible,.mcp-sheet input:focus-visible{outline:2px solid var(--accent-ink);outline-offset:1px}
+
+/* the stream of tool calls (264–294) */
+.assistant-stream{flex:1;min-height:0;overflow:auto;padding:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.assistant-empty{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-top:8px}
+.assistant-empty p{margin:0;font-size:14.5px;line-height:1.55;color:var(--ink2)}
+.tool-card{flex-shrink:0;border:1px solid var(--line);border-radius:9px;background:var(--surface);overflow:hidden}
+.tool-card-head{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px}
+.tool-tile{width:18px;height:18px;border-radius:5px;background:var(--t-blue-bg);color:var(--t-blue);display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;flex-shrink:0}
+.tool-name{color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.tool-name .tool{color:var(--ink)}
+.tool-state{font-size:11.5px;white-space:nowrap;color:var(--muted)}
+.tool-state.done{color:var(--accent-ink)}
+.tool-state.error{color:var(--t-amber)}
+.tool-args{padding:6px 10px 8px 36px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool-message{padding:0 10px 8px 36px;font-size:12px;line-height:1.45;color:var(--t-amber);white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* the switch of a server row (257) */
+.switch{width:36px;height:22px;border:0;border-radius:999px;background:var(--line2);padding:2px;cursor:pointer;display:flex;justify-content:flex-start;flex-shrink:0;transition:background .15s}
+.switch.on{background:var(--accent);justify-content:flex-end}
+.switch span{width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.switch:disabled{opacity:.45;cursor:default}
+
+/* MCP settings: the command palette's sheet (332–334) */
+.mcp-sheet{outline:0}
+.mcp-sheet-head{display:flex;align-items:center;gap:10px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--line);flex-shrink:0}
+.mcp-sheet-head .title{font-size:15px;font-weight:600}
+.mcp-sheet-body{overflow:auto;padding:12px}
+.mcp-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.mcp-row-toggle{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:0;color:var(--ink);text-align:left;cursor:pointer}
+.mcp-row-toggle .chevron{width:12px;font-size:12px;color:var(--muted)}
+.mcp-row-text{display:flex;flex-direction:column;min-width:0}
+.mcp-row-text .name{font-size:13.5px;font-weight:500}
+.mcp-row-text .sub{font-size:11.5px;color:var(--muted)}
+.mcp-row-text .sub.on{color:var(--accent-ink)}
+.mcp-error{padding:8px 10px 0;font-size:12.5px;line-height:1.45;color:var(--t-amber)}
+.mcp-details{display:flex;flex-direction:column;gap:12px;padding:12px 10px 4px}
+.mcp-lead{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.mcp-field{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.mcp-field .label{width:44px;flex-shrink:0;color:var(--ink2)}
+.mcp-field input{height:30px;width:90px;padding:0 10px;border:1px solid var(--line2);border-radius:7px;outline:0;background:var(--surface);font:inherit;font-size:13px;color:var(--ink)}
+.mcp-field input:focus{border-color:var(--accent-ink)}
+.mcp-field input:disabled{opacity:.6}
+.mcp-field input[aria-invalid=true]{border-color:var(--t-amber)}
+.mcp-field input.code{flex:1;min-width:0;width:auto;color:var(--ink2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.mcp-field .hint{color:var(--muted)}
+.mcp-clients{display:flex;flex-wrap:wrap;gap:4px}
+.mcp-where{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;line-height:1.45;color:var(--ink2)}
+.mcp-snippet{margin:0;padding:10px 12px;border-radius:9px;background:var(--soft);color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.mcp-note{margin:0;font-size:12px;color:var(--muted)}

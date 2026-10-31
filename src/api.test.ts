@@ -34,4 +34,14 @@ describe("api", () => {
     await api.openInWindow(null, true);
     expect(invoke).toHaveBeenLastCalledWith("open_in_window", { path: null, here: true });
   });
+
+  it("passes the MCP server settings and tool answers by the names Rust expects", async () => {
+    invoke.mockResolvedValue(undefined);
+    await api.mcpReply(7, false, "There is no block 9.");
+    expect(invoke).toHaveBeenLastCalledWith("mcp_reply", { id: 7, ok: false, text: "There is no block 9." });
+    await api.mcpSetEnabled(true, 7425);
+    expect(invoke).toHaveBeenLastCalledWith("mcp_set_enabled", { enabled: true, port: 7425 });
+    await api.mcpRegenerateToken();
+    expect(invoke).toHaveBeenLastCalledWith("mcp_regenerate_token");
+  });
 });

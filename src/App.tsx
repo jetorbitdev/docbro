@@ -12,6 +12,7 @@ import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
 import { paginationKey, paginationPlugin, paperGeometry, repaginate } from "./editor/pagination";
 import { FindBar, type FindRequest } from "./editor/FindBar";
+import { AssistantPanel } from "./layout/AssistantPanel";
 import { CommandPalette } from "./layout/CommandPalette";
 import { Dock } from "./layout/Dock";
 import { FooterZone, HeaderZone } from "./layout/HeaderFooter";
@@ -19,6 +20,7 @@ import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
 import type { PageLayout } from "./layout/pages";
+import { McpSettings } from "./layout/McpSettings";
 import { Paper } from "./layout/Paper";
 import { ColorPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
@@ -26,6 +28,7 @@ import { SlashMenu } from "./layout/SlashMenu";
 import { TopBar } from "./layout/TopBar";
 import { useReadingAnchor } from "./layout/useReadingAnchor";
 import { viewportLayout, type UiState } from "./layout/viewport";
+import { startBridge } from "./mcp/bridge";
 import { startTheme } from "./theme";
 
 startTheme();
@@ -41,6 +44,8 @@ const io: SessionIO = {
 const FONT_KEY = "docbro-font";
 // How long after the last resize event the side panels stay without their open/close animation.
 const SNAP_MS = 150;
+// The Assistant starts open in a window this wide (mock default), closed in a narrower one.
+const ASSISTANT_OPEN_FROM = 1240;
 
 function initialUi(): UiState {
   let sansFont = false;
@@ -54,7 +59,7 @@ function initialUi(): UiState {
     hideOutline: false,
     forceOutline: false,
     hideComments: false,
-    assistantOpen: false,
+    assistantOpen: window.innerWidth >= ASSISTANT_OPEN_FROM,
     menuBar: true,
     largerText: false,
     sansFont,
@@ -73,6 +78,7 @@ export default function App() {
   // True while the window is being resized and a moment after: panels that a breakpoint opens or closes then snap.
   const [resizing, setResizing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
@@ -102,12 +108,34 @@ export default function App() {
     setPaletteOpen(false);
     editor.commands.focus();
   }, [editor]);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    editor.commands.focus();
+  }, [editor]);
 
   useEffect(() => {
     const created = new DocSession(editor, io);
     setSession(created);
     return () => created.destroy();
   }, [editor]);
+
+  // AI tool calls that Rust forwards to this window run against its editor; Rust sends none
+  // until the window reports ready, which it does once it listens.
+  useEffect(() => {
+    if (!session) return;
+    let stop: (() => void) | undefined;
+    let gone = false;
+    startBridge(() => ({ editor, session })).then((unlisten) => {
+      if (gone) return unlisten();
+      stop = unlisten;
+      api.editorReady().catch(() => {});
+    }, tauriShell.showError);
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [editor, session]);
 
   // Any session change re-renders: the top bar shows the path and dirty state, the menus read the meta (header, footer…).
   useEffect(() => {
@@ -287,11 +315,11 @@ export default function App() {
                   editor={editor}
                   paper={paper}
                   scroller={scroller}
-                  suspended={paletteOpen}
+                  suspended={paletteOpen || settingsOpen}
                   run={run}
                   onComment={comment?.enabled ? comment.run : undefined}
                 />
-                <SlashMenu editor={editor} paper={paper} suspended={paletteOpen} />
+                <SlashMenu editor={editor} paper={paper} suspended={paletteOpen || settingsOpen} />
                 {popover === "link" && <LinkPopover editor={editor} paper={paper} onClose={closePopover} />}
                 {popover === "color" && <ColorPopover editor={editor} paper={paper} onClose={closePopover} />}
               </Paper>
@@ -307,7 +335,7 @@ export default function App() {
           </div>
           <Dock editor={editor} run={run} commentsOpen={showComments} />
         </main>
-        {/* mock 231–239: the panel's header; its body comes with Tasks 12 and 17 */}
+        {/* mock 231–329: the panel's content goes in .assistant-inner, which keeps its width while the panel opens */}
         <aside
           className={`side assistant-panel${layout.assistantOpen ? " open" : ""}`}
           style={{ "--assistant-w": layout.assistantWidth } as CSSProperties}
@@ -315,18 +343,12 @@ export default function App() {
           aria-hidden={layout.assistantOpen ? undefined : true}
         >
           <div className="assistant-inner">
-            <div className="assistant-head">
-              <span className="title">Assistant</span>
-              <span className="pill">MCP</span>
-              <div className="spacer" />
-              <button className="close-btn" title="Close" aria-label="Close" onClick={() => run("assistant")}>
-                ×
-              </button>
-            </div>
+            <AssistantPanel onClose={() => run("assistant")} onSettings={openSettings} />
           </div>
         </aside>
       </div>
       {paletteOpen && <CommandPalette commands={commands} onClose={closePalette} />}
+      {settingsOpen && <McpSettings onClose={closeSettings} />}
     </div>
   );
 }

@@ -31,6 +31,19 @@ export interface ServerView {
   error: string | null;
 }
 
+/** DocBro's own MCP server, which external AI clients connect to. */
+export interface McpStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  /** `http://127.0.0.1:<port>/mcp` */
+  url: string;
+  token: string;
+  /** this app's executable; stdio clients run it with `--mcp-stdio` */
+  command: string;
+  error: string | null;
+}
+
 /** Wrappers for the Rust commands, so no other file spells a command name or its arguments. */
 export const api = {
   /** Rejects with "Not found" when the file does not exist. */
@@ -56,6 +69,13 @@ export const api = {
     invoke<boolean>("open_in_window", { path, here }),
   /** The editor is mounted and can run `mcp-call` requests. */
   editorReady: () => invoke<void>("editor_ready"),
+  /** The answer to the `mcp-call` with this id; `ok` false makes `text` an error the AI reads. */
+  mcpReply: (id: number, ok: boolean, text: string) => invoke<void>("mcp_reply", { id, ok, text }),
+  mcpStatus: () => invoke<McpStatus>("mcp_status"),
+  /** Starts the server on `port` (the saved one when left out), or stops it. Rejects with a readable error. */
+  mcpSetEnabled: (enabled: boolean, port?: number) => invoke<McpStatus>("mcp_set_enabled", { enabled, port }),
+  /** Locks out every client that has the old token. */
+  mcpRegenerateToken: () => invoke<McpStatus>("mcp_regenerate_token"),
   /** The user's MCP servers for the Assistant. */
   serversList: () => invoke<ServerView[]>("servers_list"),
   /** Adds the server, or replaces the one with its id (which then restarts on next use). */
