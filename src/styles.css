@@ -13,10 +13,18 @@ button,textarea{font-family:inherit}
 .doc li{margin:.25em 0;padding-left:.2em}
 .doc blockquote{margin:1.4em 0;padding:4px 0 4px 20px;border-left:2px solid var(--line2);font-style:italic;color:var(--ink2)}
 .doc hr{border:0;border-top:1px solid var(--line);margin:2em 0}
-.doc table{width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:var(--font);font-size:13.5px;line-height:1.4}
+.doc table{width:100%;max-width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:var(--font);font-size:13.5px;line-height:1.4}
 .doc th,.doc td{border:1px solid var(--line)}
 .doc th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--head)}
 .doc td{padding:8px 10px;border-bottom:1px solid var(--line)}
+/* dragging a column border (prosemirror-tables): the table sits in a wrapper, and the border being dragged shows as a line */
+.doc .tableWrapper{overflow-x:auto}
+.doc th,.doc td{position:relative}
+/* a table whose columns all have widths (dragged, or read from the file) is laid out by them, and a long word breaks inside its cell */
+.doc table[style^="width"]{table-layout:fixed}
+.doc table[style^="width"] th,.doc table[style^="width"] td{overflow-wrap:anywhere}
+.doc .column-resize-handle{position:absolute;right:-2px;top:0;bottom:-2px;width:4px;background:var(--accent-ink);pointer-events:none;z-index:2}
+.doc .resize-cursor,.doc .resize-cursor *{cursor:col-resize}
 .doc mark{background:var(--hl);color:inherit;border-radius:2px;padding:0 1px}
 .doc mark[data-c]{box-shadow:inset 0 -2px 0 var(--hl-line);cursor:pointer}
 .doc ::selection{background:var(--accent-soft)}
@@ -128,7 +136,7 @@ button,textarea{font-family:inherit}
 /* while a panel transition runs the reading position is held by startReadingAnchor; the browser's own anchoring would add to it */
 .scroll[data-pinning]{overflow-anchor:none}
 .canvas{display:flex;justify-content:center;align-items:flex-start;padding:48px 24px 160px}
-.paper{position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:clamp(28px,7vw,80px) clamp(22px,7vw,84px) 96px}
+.paper{--pad-y:clamp(28px,7vw,80px);--pad-x:clamp(22px,7vw,84px);position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:var(--pad-y) var(--pad-x) 96px}
 /* header and footer zones (mock 134–155) */
 .hf-add{position:absolute;left:0;right:0;border:0;background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);text-align:left;padding:0 16px;transition:opacity .15s}
 .hf-add:hover{opacity:1}
@@ -147,6 +155,24 @@ button,textarea{font-family:inherit}
 .doc{font-family:var(--doc-font)}
 .doc.large{zoom:1.2}
 .doc .ProseMirror{outline:none;min-height:600px}
+/* a picture never runs past the page; a cover is the exception and fills its sheet edge to edge, over the sheet's margin */
+.doc img{max-width:100%;height:auto}
+.doc img[data-cover]{display:block;max-width:none;width:calc(100% + 2*var(--pad-x));height:var(--page-h,auto);margin:calc(-1*var(--pad-y)) calc(-1*var(--pad-x)) 0;border-radius:6px}
+/* the text is zoomed, the sheet is not: the cover undoes the zoom so it is the sheet's size on screen */
+.doc.large img[data-cover]{zoom:.8333}
+/* a page break: a labelled dashed line at the foot of the page it ends */
+.doc [data-page-break]{display:flex;align-items:center;gap:10px;height:28px;margin:0;font-family:var(--font);font-size:11px;color:var(--muted);user-select:none}
+.doc [data-page-break]::before,.doc [data-page-break]::after{content:"";flex:1;border-top:1px dashed var(--line2)}
+.doc [data-page-break].ProseMirror-selectednode{color:var(--accent-ink)}
+.doc [data-page-break].ProseMirror-selectednode::before,.doc [data-page-break].ProseMirror-selectednode::after{border-top-color:var(--accent-ink)}
+/* pages: the text is one flow, a spacer (.page-gap) sits where a page ends, and the sheets are drawn behind it */
+.paper.paged{background:none;border-color:transparent;box-shadow:none;border-radius:0;padding-bottom:var(--pad-y)}
+.sheets{position:absolute;inset:0;pointer-events:none}
+.sheet{position:absolute;left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18)}
+.paper.paged>.doc,.paper.paged>.hf-zone{position:relative;z-index:1}
+.paper.paged>.hf-add{z-index:1}
+.paper.paged .hf-footer{position:absolute;left:var(--pad-x);right:var(--pad-x);bottom:14px;margin:0}
+.page-gap{display:block;pointer-events:none;user-select:none}
 .comments-rail{width:0;flex-shrink:0;position:relative;align-self:stretch;overflow:hidden;visibility:hidden;transition:width var(--panel-ms) var(--panel-curve),visibility 0s linear var(--panel-ms)}
 /* the width takes in the gap between the page and the cards, so the page glides as the rail opens */
 .comments-rail.open{width:calc(var(--comments-w) + var(--comments-gap));visibility:visible;transition:width var(--panel-ms) var(--panel-curve),visibility 0s}
@@ -272,6 +298,15 @@ button,textarea{font-family:inherit}
   .paper{max-width:none;border:0;border-radius:0;box-shadow:none;padding:0}
   .doc.large{zoom:1}
   .doc .find-match{background:none;box-shadow:none}
+  /* the printer pages the text itself: no sheets or gaps, and a page break ends the page */
+  .sheets,.page-gap{display:none!important}
+  .paper.paged{min-height:0!important;padding:0}
+  .paper.paged .hf-footer{position:static}
+  .doc [data-page-break]{height:0;overflow:hidden;break-after:page}
+  .doc [data-page-break]::before,.doc [data-page-break]::after,.doc [data-page-break] span{display:none}
+  .doc img[data-cover]{width:100%;height:auto;margin:0;border-radius:0;break-after:page}
+  .doc .tableWrapper{overflow:visible}
+  .doc .column-resize-handle{display:none}
 }
 
 /* motion: only open and close animate. A window resize snaps (App adds .snap while it lasts) and reduced motion turns it all off. */

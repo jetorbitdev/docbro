@@ -5,7 +5,7 @@ test("the_schema_has_exactly_the_shared_node_and_mark_names", () => {
   const { schema } = createHeadlessEditor();
   expect(Object.keys(schema.nodes).sort()).toEqual(
     ["blockquote", "bulletList", "doc", "hardBreak", "heading", "horizontalRule", "image", "listItem",
-      "orderedList", "paragraph", "table", "tableCell", "tableHeader", "tableRow", "text"]);
+      "orderedList", "pageBreak", "paragraph", "table", "tableCell", "tableHeader", "tableRow", "text"]);
   expect(Object.keys(schema.marks).sort()).toEqual(
     ["bold", "highlight", "italic", "link", "strike", "textStyle", "underline"]);
 });

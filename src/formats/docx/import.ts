@@ -1,7 +1,7 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
 import JSZip from "jszip";
-import { emptyMeta, type DocMeta } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, emptyMeta, type DocMeta, type PageSize } from "../../doc/meta";
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
@@ -50,6 +50,8 @@ interface Context {
   images: Map<string, string | null>; // relationship id -> data URL, or null for a format a browser cannot show
   counts: Map<string, number[]>; // numId -> items numbered so far, per level
   dropped: Set<DroppedPart>;
+  page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
+  textWidth: number; // px, the paper less its side margins: the widest a table is kept
 }
 
 // A block of the body before consecutive list and quote paragraphs are grouped.
@@ -81,10 +83,44 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     images: await images(zip, body, relations),
     counts: new Map(),
     dropped: await droppedParts(zip, body),
+    page: pageEmu(lastSection(body)),
+    textWidth: textWidthPx(lastSection(body)),
   };
-  const doc = finish(blocks(body, ctx));
+  const doc = finish(trimCovers(blocks(body, ctx)));
   const meta = await readHeaderFooter(zip, body, relations, ctx.dropped);
+  meta.pageSize = pageSizeOf(lastSection(body));
   return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
+}
+
+// The properties of the last section: the one whose header, footer and paper DocBro keeps.
+function lastSection(body: Element): Element | null {
+  const sections = descendants(body, "w:sectPr").filter((s) => !is(s.parentElement!, "w:sectPrChange"));
+  return sections[sections.length - 1] ?? null;
+}
+
+const EMU_PER_TWIP = 635;
+
+// The paper less the margins on its sides (an inch each when the file does not say), in px.
+function textWidthPx(sectPr: Element | null): number {
+  const width = int(attr(sectPr && first(sectPr, "w:pgSz"), "w:w")) ?? PAPER.letter.width;
+  const margin = (side: string) => int(attr(sectPr && first(sectPr, "w:pgMar"), side)) ?? 1440;
+  return Math.max(1, (width - margin("w:left") - margin("w:right")) / TWIPS_PER_PX);
+}
+
+function pageEmu(sectPr: Element | null): { width: number; height: number } {
+  const size = sectPr && first(sectPr, "w:pgSz");
+  return {
+    width: (int(attr(size, "w:w")) ?? PAPER.letter.width) * EMU_PER_TWIP,
+    height: (int(attr(size, "w:h")) ?? PAPER.letter.height) * EMU_PER_TWIP,
+  };
+}
+
+// Letter unless the file says A4; any other paper is reported by `customPage` and kept as Letter.
+function pageSizeOf(sectPr: Element | null): PageSize {
+  const size = sectPr && first(sectPr, "w:pgSz");
+  const fits = (paper: PageSize) =>
+    near(attr(size, "w:w"), PAPER[paper].width) && near(attr(size, "w:h"), PAPER[paper].height);
+  return fits("letter") ? "letter" : fits("a4") ? "a4" : "letter";
 }
 
 // --- Package -----------------------------------------------------------------
@@ -165,7 +201,7 @@ const near = (value: string | null, target: number) => value === null || Math.ab
 function customPage(sectPr: Element): boolean {
   const size = first(sectPr, "w:pgSz");
   const margin = first(sectPr, "w:pgMar");
-  const paper = [[12240, 15840], [11906, 16838]].some(([w, h]) => near(attr(size, "w:w"), w) && near(attr(size, "w:h"), h));
+  const paper = Object.values(PAPER).some(({ width, height }) => near(attr(size, "w:w"), width) && near(attr(size, "w:h"), height));
   const margins = ["w:top", "w:right", "w:bottom", "w:left"].every((side) => near(attr(margin, side), 1440));
   const gutter = Number(attr(margin, "w:gutter") ?? 0) > 0;
   const columns = Number(attr(first(sectPr, "w:cols"), "w:num") ?? 1) > 1;
@@ -217,8 +253,7 @@ async function readHeaderFooter(
   dropped: Set<DroppedPart>,
 ): Promise<DocMeta> {
   const meta = emptyMeta();
-  const sections = descendants(body, "w:sectPr").filter((s) => !is(s.parentElement!, "w:sectPrChange"));
-  const section = sections[sections.length - 1] ?? null;
+  const section = lastSection(body);
 
   for (const kind of ["header", "footer"] as const) {
     const refs = children(section, kind === "header" ? "w:headerReference" : "w:footerReference");
@@ -542,7 +577,7 @@ function paragraph(p: Element, ctx: Context): Item[] {
       ? { type: "heading", attrs: { level: kind.level, textAlign }, content }
       : { type: "paragraph", attrs: { textAlign }, content };
 
-  // A picture or rule is a block in DocBro, so it splits the paragraph around it.
+  // A picture, rule or page break is a block in DocBro, so it splits the paragraph around it.
   const items: Item[] = [];
   let run: JSONContent[] = [];
   const flush = (always: boolean) => {
@@ -550,13 +585,18 @@ function paragraph(p: Element, ctx: Context): Item[] {
     run = [];
   };
   for (const piece of pieces) {
-    if (piece.type === "image" || piece.type === "horizontalRule") {
+    if (piece.type === "image" || piece.type === "horizontalRule" || piece.type === "pageBreak") {
       flush(false);
       items.push({ node: piece });
     } else run.push(piece);
   }
   flush(items.length === 0);
-  return items;
+
+  // The paragraph's own page break (a property, or the end of a section) is not an inline break.
+  const before: Item[] = toggle(prop(ctx, pPr, styleId, "w:pageBreakBefore")) ? [{ node: { type: "pageBreak" } }] : [];
+  const section = first(pPr, "w:sectPr");
+  const after: Item[] = section && attr(first(section, "w:type"), "w:val") !== "continuous" ? [{ node: { type: "pageBreak" } }] : [];
+  return [...before, ...items, ...after];
 }
 
 // An empty paragraph whose only property is a bottom border.
@@ -611,7 +651,9 @@ function run(r: Element | null, ctx: Context, marks: Mark[], out: JSONContent[])
     if (is(el, "w:t")) text(runText(el));
     else if (is(el, "w:tab") || is(el, "w:ptab")) text("\t");
     else if (is(el, "w:br")) {
-      if (!["page", "column"].includes(attr(el, "w:type") ?? "")) out.push({ type: "hardBreak" });
+      const type = attr(el, "w:type");
+      if (type === "page") out.push({ type: "pageBreak" });
+      else if (type !== "column") out.push({ type: "hardBreak" });
     } else if (is(el, "w:cr")) out.push({ type: "hardBreak" });
     else if (is(el, "w:noBreakHyphen")) text("‑");
     else if (is(el, "w:softHyphen")) text("­");
@@ -638,7 +680,16 @@ function runText(t: Element): string {
 function drawing(el: Element, ctx: Context, out: JSONContent[]): void {
   const blip = descendants(el, "a:blip")[0];
   if (attr(descendants(el, "a:graphicData")[0], "uri") !== PICTURE || !blip) return void ctx.dropped.add("other_content"); // shape, chart, group, …
-  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out);
+  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page));
+}
+
+// A picture pinned to the page, text wrapping off, covering nearly all of it: the page's artwork, not a figure in the text.
+function isCover(drawing: Element, page: { width: number; height: number }): boolean {
+  const anchor = descendants(drawing, "wp:anchor")[0];
+  if (!anchor || !first(anchor, "wp:wrapNone")) return false;
+  if (["wp:positionH", "wp:positionV"].some((name) => attr(first(anchor, name), "relativeFrom") !== "page")) return false;
+  const extent = first(anchor, "wp:extent");
+  return Number(attr(extent, "cx")) >= page.width * 0.9 && Number(attr(extent, "cy")) >= page.height * 0.9;
 }
 
 // VML, from older files: a picture, Word's "Horizontal Line", or a shape.
@@ -650,9 +701,9 @@ function pict(el: Element, ctx: Context, out: JSONContent[]): void {
   else ctx.dropped.add("other_content");
 }
 
-function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[]): void {
+function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false): void {
   const src = id ? ctx.images.get(id) : null;
-  if (src) out.push({ type: "image", attrs: { src, alt } });
+  if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }) } });
   else if (src === null) ctx.dropped.add("other_content"); // linked from outside the file, or EMF/TIFF/…
 }
 
@@ -664,7 +715,22 @@ function flatten(container: Element | null, name: string): Element[] {
     is(el, name) ? [el] : is(el, "w:sdt") ? flatten(first(el, "w:sdtContent"), name) : is(el, "w:customXml") ? flatten(el, name) : []);
 }
 
+// The width of each grid column in px, when the table has a width of its own: a fixed one, or a fixed layout. A table that
+// is auto or percent wide fits itself to the page, and its grid is only what the writer measured at the time.
+function gridWidths(tbl: Element, textWidth: number): number[] | null {
+  const props = first(tbl, "w:tblPr");
+  const fixed = attr(first(props, "w:tblW"), "w:type") === "dxa" || attr(first(props, "w:tblLayout"), "w:type") === "fixed";
+  if (!fixed) return null;
+  const columns = children(first(tbl, "w:tblGrid"), "w:gridCol").map((col) => int(attr(col, "w:w")));
+  if (!columns.length || columns.some((w) => !w || w <= 0)) return null;
+  // A table wider than the text of the page would run off the paper, so its columns are cut in proportion.
+  const px = columns.map((w) => w! / TWIPS_PER_PX);
+  const scale = Math.min(1, textWidth / px.reduce((sum, w) => sum + w, 0));
+  return px.map((w) => Math.max(1, Math.round(w * scale)));
+}
+
 function table(tbl: Element, ctx: Context): JSONContent | null {
+  const grid = gridWidths(tbl, ctx.textWidth);
   const rows = flatten(tbl, "w:tr").flatMap((tr) => {
     const trPr = first(tr, "w:trPr");
     if (first(trPr, "w:del")) return []; // a tracked deletion
@@ -674,7 +740,10 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
       const span = Math.max(1, int(attr(first(tcPr, "w:gridSpan"), "w:val")) ?? 1);
       const vMerge = first(tcPr, "w:vMerge");
       const merge = vMerge ? (attr(vMerge, "w:val") === "restart" ? "restart" : "continue") : null;
-      const cell = { col, span, merge, rowspan: 1, covered: false, content: blocks(tc, ctx) };
+      // A page break has no place inside a cell: the table is one block, and the layout never splits it.
+      const content = blocks(tc, ctx).filter((n) => n.type !== "pageBreak");
+      const colwidth = grid && col + span <= grid.length ? grid.slice(col, col + span) : null;
+      const cell = { col, span, merge, rowspan: 1, covered: false, content, colwidth };
       col += span;
       return cell;
     });
@@ -698,11 +767,30 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
     type: "tableRow",
     content: row.cells.filter((c) => !c.covered).map((c) => ({
       type: row.header ? "tableHeader" : "tableCell",
-      attrs: { colspan: c.span, rowspan: c.rowspan },
+      attrs: { colspan: c.span, rowspan: c.rowspan, colwidth: c.colwidth },
       content: c.content.length ? c.content : [{ type: "paragraph" }],
     })),
   }));
   return content.length ? { type: "table", content } : null;
+}
+
+// A cover ends its page, so what Word needed to get the text below its artwork is not kept: the blank
+// paragraphs right after it, and one page break (a second would be a blank page of the writer's own).
+function trimCovers(content: JSONContent[]): JSONContent[] {
+  const out: JSONContent[] = [];
+  for (let i = 0; i < content.length; i++) {
+    out.push(content[i]);
+    if (content[i].type !== "image" || !content[i].attrs?.cover) continue;
+    let breakSeen = false;
+    for (let next = content[i + 1]; next; next = content[i + 1]) {
+      const blank = next.type === "paragraph" && !next.content?.length;
+      const breaks = next.type === "pageBreak" && !breakSeen;
+      if (!blank && !breaks) break;
+      if (breaks) breakSeen = true;
+      i++;
+    }
+  }
+  return out;
 }
 
 // --- Result ----------------------------------------------------------------------

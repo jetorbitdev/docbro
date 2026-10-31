@@ -6,9 +6,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
+import { PAPER } from "./doc/meta";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
+import { paginationKey, paginationPlugin, paperGeometry, repaginate } from "./editor/pagination";
 import { FindBar, type FindRequest } from "./editor/FindBar";
 import { CommandPalette } from "./layout/CommandPalette";
 import { Dock } from "./layout/Dock";
@@ -16,7 +18,7 @@ import { FooterZone, HeaderZone } from "./layout/HeaderFooter";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
-import { estimatePages } from "./layout/pages";
+import type { PageLayout } from "./layout/pages";
 import { Paper } from "./layout/Paper";
 import { ColorPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
@@ -73,7 +75,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
-  const [paperHeight, setPaperHeight] = useState(0);
+  // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
+  const [pageLayout, setPageLayout] = useState<PageLayout | null>(null);
+  const pageConfig = useRef({ ratio: PAPER.letter.height / PAPER.letter.width, zoom: 1 });
   const [popover, setPopover] = useState<"link" | "color" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
   const findCount = useRef(0);
@@ -141,13 +145,29 @@ export default function App() {
     };
   }, []);
 
-  // The page count is an estimate from how tall the paper is, as in the mock.
+  // The text is laid out on sheets: a spacer where a page ends, and the sheets drawn behind (Paper).
   useEffect(() => {
     if (!paper) return;
-    const observer = new ResizeObserver(([entry]) => setPaperHeight(entry.contentRect.height));
-    observer.observe(paper);
-    return () => observer.disconnect();
-  }, [paper]);
+    editor.registerPlugin(
+      paginationPlugin({
+        geometry: (el) => paperGeometry(el, pageConfig.current.ratio),
+        onLayout: setPageLayout,
+        zoom: () => pageConfig.current.zoom,
+      }),
+    );
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(paginationKey);
+    };
+  }, [editor, paper]);
+
+  // A different paper (Letter, A4), Larger text or the other body font changes how tall the sheets are or how the text breaks.
+  const paperSize = PAPER[session?.meta.pageSize ?? "letter"];
+  const pageRatio = paperSize.height / paperSize.width;
+  const pageZoom = ui.largerText ? 1.2 : 1;
+  useEffect(() => {
+    pageConfig.current = { ratio: pageRatio, zoom: pageZoom };
+    if (paper) repaginate(editor.view);
+  }, [editor, paper, pageRatio, pageZoom, ui.sansFont]);
 
   const actions = useMemo(
     () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor, openFind }) : {}),
@@ -213,7 +233,7 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
-  const pages = estimatePages(paperHeight);
+  const pages = pageLayout?.pages ?? 1;
   // the rail takes room from the page, so it is only there when the document has comments to put in it
   const showComments = layout.showComments && (session?.meta.comments.length ?? 0) > 0;
   const comment = commands.find((c) => c.id === "comment");
@@ -245,6 +265,7 @@ export default function App() {
               <Paper
                 editor={editor}
                 large={ui.largerText}
+                layout={pageLayout}
                 paperRef={setPaper}
                 header={
                   session && (

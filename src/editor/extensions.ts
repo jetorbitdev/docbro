@@ -8,6 +8,7 @@ import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { isAutomaticColor } from "./automaticColor";
+import { PageBreak } from "./pageBreak";
 
 // Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
 // have turned the default text light. Those colors are dropped as the HTML is read; the rest are kept as they came.
@@ -29,6 +30,21 @@ const PastedColor = Color.extend({
         },
       };
     });
+  },
+});
+
+// A picture that is a whole page of its own: a cover. Word pins it to the page behind the text; here it fills
+// its sheet edge to edge and the next block starts on a new page (layout/pagination.ts).
+const CoverImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      cover: {
+        default: false,
+        parseHTML: (element: HTMLElement) => element.hasAttribute("data-cover"),
+        renderHTML: (attributes: Record<string, unknown>) => (attributes.cover ? { "data-cover": "" } : {}),
+      },
+    };
   },
 });
 
@@ -56,11 +72,12 @@ export function createExtensions(): Extensions {
     TextStyle,
     PastedColor,
     Highlight.configure({ multicolor: true }),
-    Table.configure({ resizable: false }),
+    Table.configure({ resizable: true }),
     TableRow,
     TableHeader,
     TableCell,
-    Image.configure({ allowBase64: true, inline: false }),
+    CoverImage.configure({ allowBase64: true, inline: false }),
+    PageBreak,
     Markdown,
   ];
 }

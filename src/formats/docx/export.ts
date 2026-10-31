@@ -7,9 +7,11 @@ import {
   Footer,
   Header,
   HeadingLevel,
+  HorizontalPositionRelativeFrom,
   ImageRun,
   LevelFormat,
   Packer,
+  PageBreak,
   PageNumber,
   Paragraph,
   ShadingType,
@@ -18,21 +20,23 @@ import {
   TabStopType,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
+  TextWrappingType,
   UnderlineType,
+  VerticalPositionRelativeFrom,
   WidthType,
   type ILevelsOptions,
   type IParagraphOptions,
 } from "docx";
-import type { DocMeta } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, type DocMeta } from "../../doc/meta";
 
 type Block = Paragraph | Table;
-type Inline = TextRun | ExternalHyperlink | ImageRun;
+type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak;
 
-const MAX_IMAGE_WIDTH = 624; // px: 6.5in, the text width of a Letter page with 1in margins
-const LETTER = { width: 12240, height: 15840 }; // twips
 const MARGIN = 1440; // 1in
+const MIN_COLUMN = 40; // px: the least a column nobody sized is given
 const LEVEL_INDENT = 720;
 const LEVEL_HANGING = 360;
 const BULLETS = ["•", "◦", "▪"];
@@ -51,12 +55,17 @@ const HEADINGS = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.H
 interface Context {
   nextInstance: number;
   starts: Set<number>;
+  imageWidth: number; // px: the text width of the page, the widest a picture is written
+  page: { width: number; height: number }; // px: what a cover is stretched to
 }
 
 // `meta.header` and `meta.footer` are the one-line zones DocBro's paper shows; page
 // numbers become a Page/NumPages field pair at the footer's right edge.
 export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint8Array> {
-  const ctx: Context = { nextInstance: 0, starts: new Set([1]) };
+  const paper = PAPER[meta?.pageSize ?? "letter"];
+  const ctx: Context = { nextInstance: 0, starts: new Set([1]), imageWidth: (paper.width - 2 * MARGIN) / TWIPS_PER_PX,
+    page: { width: paper.width / TWIPS_PER_PX, height: paper.height / TWIPS_PER_PX },
+  };
   const children: Block[] = blocks(doc.content, ctx);
   if (children.length === 0) children.push(new Paragraph({}));
   const header =
@@ -97,7 +106,7 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
     },
     sections: [
       {
-        properties: { page: { size: LETTER, margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN } } },
+        properties: { page: { size: paper, margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN } } },
         ...(header && { headers: { default: header } }),
         ...(footer && { footers: { default: footer } }),
         children,
@@ -157,10 +166,10 @@ function blocks(nodes: JSONContent[] | undefined, ctx: Context, quoted = false):
 function block(node: JSONContent, ctx: Context, quoted: boolean): Block[] {
   switch (node.type) {
     case "paragraph":
-      return [paragraph(node, quoted ? { style: "Quote" } : {})];
+      return [paragraph(node, ctx, quoted ? { style: "Quote" } : {})];
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1));
-      return [paragraph(node, { heading: HEADINGS[level - 1] })];
+      return [paragraph(node, ctx, { heading: HEADINGS[level - 1] })];
     }
     case "blockquote":
       return blocks(node.content, ctx, true);
@@ -171,16 +180,19 @@ function block(node: JSONContent, ctx: Context, quoted: boolean): Block[] {
       return list(node, ctx, 0);
     case "table":
       return table(node, ctx);
+    case "pageBreak":
+      return [new Paragraph({ children: [new PageBreak()] })];
     case "image":
-      return [new Paragraph({ children: inline([node]) })];
+      // a cover is pinned to the page behind the text, and the page break ends it
+      return [new Paragraph({ children: node.attrs?.cover ? [...inline([node], ctx), new PageBreak()] : inline([node], ctx) })];
     default:
       return blocks(node.content, ctx, quoted);
   }
 }
 
-function paragraph(node: JSONContent, options: IParagraphOptions = {}): Paragraph {
+function paragraph(node: JSONContent, ctx: Context, options: IParagraphOptions = {}): Paragraph {
   const align = ALIGNMENT[node.attrs?.textAlign as keyof typeof ALIGNMENT];
-  return new Paragraph({ ...options, alignment: align, children: inline(node.content) });
+  return new Paragraph({ ...options, alignment: align, children: inline(node.content, ctx) });
 }
 
 function list(node: JSONContent, ctx: Context, depth: number): Block[] {
@@ -198,17 +210,56 @@ function list(node: JSONContent, ctx: Context, depth: number): Block[] {
   for (const item of node.content ?? []) {
     (item.content ?? []).forEach((child, index) => {
       if (child.type === "bulletList" || child.type === "orderedList") out.push(...list(child, ctx, depth + 1));
-      else if (child.type === "paragraph" && index === 0) out.push(paragraph(child, { numbering: { reference, level, instance } }));
-      else if (child.type === "paragraph") out.push(paragraph(child, { indent: { left: levelIndent(level).left } }));
+      else if (child.type === "paragraph" && index === 0) out.push(paragraph(child, ctx, { numbering: { reference, level, instance } }));
+      else if (child.type === "paragraph") out.push(paragraph(child, ctx, { indent: { left: levelIndent(level).left } }));
       else out.push(...block(child, ctx, false));
     });
   }
   return out;
 }
 
+// Where each cell starts in the table's grid, and the width in px that dragging gave each grid column (a column nobody
+// sized has none). Cells below a cell that spans rows leave its columns out of their count, as in the table's markup.
+function gridOf(rows: JSONContent[]): { start: Map<JSONContent, number>; widths: (number | undefined)[]; columns: number } {
+  const start = new Map<JSONContent, number>();
+  const widths: (number | undefined)[] = [];
+  let columns = 0;
+  let spanning: number[] = []; // rows each column is still covered for by a cell from above
+  for (const row of rows) {
+    const next = spanning.map((n) => Math.max(0, n - 1));
+    let col = 0;
+    for (const cell of row.content ?? []) {
+      while ((spanning[col] ?? 0) > 0) col++;
+      const span = Math.max(1, Number(cell.attrs?.colspan) || 1);
+      const rowspan = Math.max(1, Number(cell.attrs?.rowspan) || 1);
+      const colwidth = Array.isArray(cell.attrs?.colwidth) ? (cell.attrs!.colwidth as number[]) : [];
+      start.set(cell, col);
+      for (let k = 0; k < span; k++) {
+        if (colwidth[k] > 0) widths[col + k] = colwidth[k];
+        next[col + k] = rowspan - 1;
+      }
+      col += span;
+    }
+    columns = Math.max(columns, col, spanning.length);
+    spanning = next;
+  }
+  return { start, widths, columns };
+}
+
+// The columns in twips, with the page's text width shared among those nobody sized; null when none has a width.
+function columnTwips({ widths, columns }: ReturnType<typeof gridOf>, textWidth: number): number[] | null {
+  const sized = Array.from({ length: columns }, (_, i) => widths[i]);
+  if (!sized.some((w) => w !== undefined)) return null;
+  const unsized = sized.filter((w) => w === undefined).length;
+  const share = unsized ? Math.max(MIN_COLUMN, (textWidth - sized.reduce<number>((sum, w) => sum + (w ?? 0), 0)) / unsized) : 0;
+  return sized.map((w) => Math.round((w ?? share) * TWIPS_PER_PX));
+}
+
 function table(node: JSONContent, ctx: Context): Block[] {
-  const rows = (node.content ?? [])
-    .filter((row) => row.type === "tableRow" && row.content?.length)
+  const sourceRows = (node.content ?? []).filter((row) => row.type === "tableRow" && row.content?.length);
+  const grid = gridOf(sourceRows);
+  const twips = columnTwips(grid, ctx.imageWidth);
+  const rows = sourceRows
     .map(
       (row) =>
         new TableRow({
@@ -219,21 +270,35 @@ function table(node: JSONContent, ctx: Context): Block[] {
             if (children.length === 0 || children[children.length - 1] instanceof Table) children.push(new Paragraph({}));
             const columnSpan = Number(cell.attrs?.colspan) || 1;
             const rowSpan = Number(cell.attrs?.rowspan) || 1;
+            const first = grid.start.get(cell) ?? 0;
+            const width = twips && twips.slice(first, first + columnSpan).reduce((sum, w) => sum + w, 0);
             return new TableCell({
               children,
               columnSpan: columnSpan > 1 ? columnSpan : undefined,
               rowSpan: rowSpan > 1 ? rowSpan : undefined,
+              width: width ? { size: width, type: WidthType.DXA } : undefined,
             });
           }),
         }),
     );
-  return rows.length ? [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })] : [];
+  if (!rows.length) return [];
+  // Widths the writer dragged are kept exactly (a fixed layout); a table nobody resized is as wide as the page.
+  return [
+    twips
+      ? new Table({
+          rows,
+          columnWidths: twips,
+          width: { size: twips.reduce((sum, w) => sum + w, 0), type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+        })
+      : new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+  ];
 }
 
-function inline(nodes: JSONContent[] | undefined): Inline[] {
+function inline(nodes: JSONContent[] | undefined, ctx: Context): Inline[] {
   return (nodes ?? []).flatMap((node): Inline[] => {
     if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
-    if (node.type === "image") return [image(node)];
+    if (node.type === "image") return [image(node, ctx)];
     if (node.type === "text" && node.text) return [text(node)];
     return [];
   });
@@ -303,12 +368,27 @@ function pixelSize(type: ImageType, b: Uint8Array): { width: number; height: num
   return undefined;
 }
 
-function image(node: JSONContent): ImageRun | TextRun {
+function image(node: JSONContent, ctx: Context): ImageRun | TextRun {
   const alt = typeof node.attrs?.alt === "string" && node.attrs.alt !== "" ? (node.attrs.alt as string) : undefined;
   const decoded = decodeImage(String(node.attrs?.src ?? ""));
   if (!decoded) return new TextRun(alt ?? "[image]");
 
-  const scale = Math.min(1, MAX_IMAGE_WIDTH / decoded.width);
+  if (node.attrs?.cover)
+    return new ImageRun({
+      type: decoded.type,
+      data: decoded.data,
+      transformation: ctx.page,
+      altText: alt ? { description: alt } : undefined,
+      floating: {
+        horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: 0 },
+        verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, offset: 0 },
+        behindDocument: true,
+        allowOverlap: true,
+        wrap: { type: TextWrappingType.NONE },
+      },
+    });
+
+  const scale = Math.min(1, ctx.imageWidth / decoded.width);
   return new ImageRun({
     type: decoded.type,
     data: decoded.data,

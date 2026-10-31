@@ -42,3 +42,17 @@ test("always_returns_a_document_the_schema_accepts", () => {
     expect(() => schema.nodeFromJSON(markdownToDoc(md)).check(), md).not.toThrow();
   }
 });
+
+test("a_page_break_is_kept_in_markdown_and_read_back", () => {
+  const doc = {
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "one" }] },
+      { type: "pageBreak" },
+      { type: "paragraph", content: [{ type: "text", text: "two" }] },
+    ],
+  };
+  const md = docToMarkdown(doc);
+  expect(md).toContain("data-page-break");
+  expect(markdownToDoc(md).content!.map((n) => n.type)).toEqual(["paragraph", "pageBreak", "paragraph"]);
+});

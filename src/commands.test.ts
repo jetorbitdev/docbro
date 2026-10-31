@@ -232,3 +232,11 @@ test("shortcut_labels_use_ctrl_alt_and_shift_off_macos", () => {
   expect(platformKeys("⌘\\", false)).toBe("Ctrl+\\");
   expect(platformKeys("", false)).toBe("");
 });
+
+test("page_break_starts_a_new_page_and_leaves_an_empty_paragraph_to_type_in", () => {
+  editor.commands.setTextSelection(editor.state.doc.firstChild!.nodeSize - 1); // the end of the line
+  byId(host(), "page_break").run();
+  expect(editor.getJSON().content!.map((n) => n.type)).toEqual(["paragraph", "pageBreak", "paragraph"]);
+  expect(editor.state.selection.$from.parent).toBe(editor.state.doc.child(2));
+  expect(byId(host(), "page_break")).toMatchObject({ group: "Insert", label: "Page break" });
+});

@@ -112,7 +112,8 @@ test("keeps_spaces_tabs_and_breaks_inside_runs", async () => {
     p("<w:r><w:t>  tanpa preserve  </w:t></w:r>"),
   );
   expect(result.content![0].content).toEqual([t("  dua spasi \t lalu tab  "), { type: "hardBreak" }, t("baris")]);
-  expect(result.content![1].content).toEqual([t("tanpa preserve")]);
+  expect(result.content![1].type).toBe("pageBreak"); // the page break is a block, not a line break inside the paragraph
+  expect(result.content![2].content).toEqual([t("tanpa preserve")]);
 });
 
 test("an_empty_document_is_one_empty_paragraph", async () => {

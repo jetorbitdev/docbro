@@ -74,7 +74,7 @@ test("slash_with_no_match_offers_nothing_so_enter_stays_a_newline", () => {
 });
 
 test("the_slash_list_has_table_and_image_after_quote_and_matches_label_or_key", () => {
-  expect(SLASH_ITEMS.map((s) => s.k)).toEqual(["p", "h1", "h2", "h3", "ul", "ol", "blockquote", "table", "image", "hr"]);
+  expect(SLASH_ITEMS.map((s) => s.k)).toEqual(["p", "h1", "h2", "h3", "ul", "ol", "blockquote", "table", "image", "pagebreak", "hr"]);
   expect(SLASH_ITEMS.find((s) => s.k === "table")).toEqual({ k: "table", label: "Table", hint: "Rows and columns", icon: "▦" });
   expect(SLASH_ITEMS.find((s) => s.k === "image")).toEqual({ k: "image", label: "Image", hint: "From a file", icon: "▣" });
   expect(filterSlash("")).toEqual(SLASH_ITEMS);
@@ -535,4 +535,18 @@ test("the_image_dialog_offers_png_jpg_jpeg_and_gif_only", async () => {
     }),
   );
   expect(images()).toEqual([]);
+});
+
+test("a_page_break_is_offered_by_its_name_and_inserted_with_an_empty_paragraph_after_it", () => {
+  expect(SLASH_ITEMS.find((s) => s.k === "pagebreak")).toEqual({ k: "pagebreak", label: "Page break", hint: "Start a new page", icon: "⤓" });
+  expect(filterSlash("page").map((s) => s.k)).toEqual(["pagebreak"]);
+
+  open([p("Before"), p(), p("After")], 9); // the empty line
+  applyBlock(editor, "pagebreak", true);
+  expect(kinds(editor)).toEqual(["paragraph", "pageBreak", "paragraph", "paragraph"]);
+  expect(editor.state.selection.$from.parent).toBe(editor.state.doc.child(2));
+  expect(editor.state.selection.$from.parent.content.size).toBe(0);
+
+  editor.commands.setNodeSelection(posOf("pageBreak"));
+  expect(blockOf(editor)).toBe("pagebreak");
 });

@@ -51,7 +51,7 @@ const lines = () => top((n) => n.textContent);
 
 test("a_slash_on_an_empty_line_opens_the_menu_and_a_sentence_does_not", () => {
   type("/");
-  expect(rows()).toHaveLength(10);
+  expect(rows()).toHaveLength(11);
   expect(row()).toBe("Text");
   type("zz");
   expect(menu()).toBeNull(); // "/zz" matches nothing
@@ -165,10 +165,10 @@ test("slash_state_starts_at_the_first_row_and_is_gone_with_the_line", () => {
 test("slash_state_moves_wraps_and_clamps", () => {
   const at = (index: number): SlashMenuState => ({ pos: 0, query: "", index, dismissed: false });
   expect(slashNext(at(0), line(""), { type: "move", step: 1 })!.index).toBe(1);
-  expect(slashNext(at(9), line(""), { type: "move", step: 1 })!.index).toBe(0);
-  expect(slashNext(at(0), line(""), { type: "move", step: -1 })!.index).toBe(9);
+  expect(slashNext(at(10), line(""), { type: "move", step: 1 })!.index).toBe(0);
+  expect(slashNext(at(0), line(""), { type: "move", step: -1 })!.index).toBe(10);
   expect(slashNext(at(0), line(""), { type: "hover", index: 4 })!.index).toBe(4);
-  expect(slashNext(at(0), line(""), { type: "hover", index: 99 })!.index).toBe(9);
+  expect(slashNext(at(0), line(""), { type: "hover", index: 99 })!.index).toBe(10);
 });
 
 test("slash_state_dismisses_only_the_text_it_was_dismissed_for", () => {

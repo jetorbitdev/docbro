@@ -358,6 +358,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&MenuItemBuilder::with_id("image", "Image…").build(app)?)
         .item(&item("link", "Link…", "CmdOrCtrl+Shift+K")?)
         .item(&MenuItemBuilder::with_id("divider", "Divider").build(app)?)
+        .item(&MenuItemBuilder::with_id("page_break", "Page break").build(app)?)
         .separator()
         .item(&item("comment", "Comment", "CmdOrCtrl+Alt+M")?)
         .separator()

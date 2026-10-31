@@ -6,7 +6,7 @@ import { liftListItem } from "@tiptap/pm/schema-list";
 import { NodeSelection, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { api } from "../api";
 
-export type BlockKey = "p" | "h1" | "h2" | "h3" | "ul" | "ol" | "blockquote" | "hr" | "table" | "image";
+export type BlockKey = "p" | "h1" | "h2" | "h3" | "ul" | "ol" | "blockquote" | "hr" | "pagebreak" | "table" | "image";
 
 export interface Rect {
   left: number;
@@ -27,6 +27,7 @@ export const SLASH_ITEMS: { k: BlockKey; label: string; hint: string; icon: stri
   { k: "blockquote", label: "Quote", hint: "Pull a line out", icon: "“" },
   { k: "table", label: "Table", hint: "Rows and columns", icon: "▦" },
   { k: "image", label: "Image", hint: "From a file", icon: "▣" },
+  { k: "pagebreak", label: "Page break", hint: "Start a new page", icon: "⤓" },
   { k: "hr", label: "Divider", hint: "Horizontal rule", icon: "—" },
 ];
 
@@ -116,7 +117,7 @@ const WRAPPERS = [...LISTS, "blockquote"] as const;
 
 const NODE_BLOCKS = new Map<string, BlockKey>([
   ["bulletList", "ul"], ["orderedList", "ol"], ["blockquote", "blockquote"], ["table", "table"],
-  ["horizontalRule", "hr"], ["image", "image"],
+  ["horizontalRule", "hr"], ["pageBreak", "pagebreak"], ["image", "image"],
 ]);
 
 /** The key of the block at the selection: the heading, else the nearest list, quote or table around it, else text. */
@@ -178,6 +179,7 @@ export function applyBlock(editor: Editor, key: BlockKey, force = false): void {
   if (key === "image") return void pickImage(editor);
   const chain = editor.chain().focus();
   if (key === "hr") return void chain.insertContent([{ type: "horizontalRule" }, { type: "paragraph" }]).command(caretIntoEmptyLine).run();
+  if (key === "pagebreak") return void chain.insertContent([{ type: "pageBreak" }, { type: "paragraph" }]).command(caretIntoEmptyLine).run();
   if (key === "table") return void chain.insertContent([TABLE, { type: "paragraph" }]).command(caretIntoEmptyLine).run();
 
   if (key === "p") return void chain.setParagraph().command(liftOut(WRAPPERS)).run();
