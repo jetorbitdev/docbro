@@ -40,6 +40,7 @@ export const COMMAND_IDS: string[] = [
   "undo", "redo", "clear_format", "find", "replace", "select_all",
   "focus", "outline", "comments", "assistant", "dark_mode", "larger_text", "sans_font", "palette",
   "table", "image", "link", "divider", "comment", "header", "footer", "page_numbers",
+  "column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "table_delete",
   "text", "h1", "h2", "h3", "quote", "ul", "ol",
   "bold", "italic", "underline", "strike", "highlight", "color",
   "align_left", "align_center", "align_right", "align_justify",
@@ -94,6 +95,14 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null),
     cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null),
     cmd("page_numbers", "Insert", "#", "Page numbers", "", actions.togglePageNumbers, meta.pageNumbers),
+    // These act on the table around the caret and do nothing anywhere else.
+    cmd("column_before", "Insert", "▥", "Add column before", "", edit((c) => c.addColumnBefore())),
+    cmd("column_after", "Insert", "▥", "Add column after", "", edit((c) => c.addColumnAfter())),
+    cmd("column_delete", "Insert", "▥", "Delete column", "", edit((c) => c.deleteColumn())),
+    cmd("row_before", "Insert", "▤", "Add row above", "", edit((c) => c.addRowBefore())),
+    cmd("row_after", "Insert", "▤", "Add row below", "", edit((c) => c.addRowAfter())),
+    cmd("row_delete", "Insert", "▤", "Delete row", "", edit((c) => c.deleteRow())),
+    cmd("table_delete", "Insert", "▦", "Delete table", "", edit((c) => c.deleteTable())),
 
     cmd("text", "Format", "T", "Normal text", "⌥⌘0", block("p")),
     cmd("h1", "Format", "H1", "Heading 1", "⌥⌘1", block("h1")),

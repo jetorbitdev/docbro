@@ -152,6 +152,56 @@ test("block_commands_pick_the_block_and_only_the_lists_toggle", () => {
   expect(editor.state.selection.$from.parent).toBe(editor.state.doc.child(3));
 });
 
+/** The table's shape as cells per row, with the caret in its first cell. */
+function tableWithCaretInFirstCell() {
+  byId(host(), "table").run();
+  let cell = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (cell < 0 && node.type.name === "tableHeader") cell = pos;
+  });
+  editor.commands.setTextSelection(cell + 2);
+}
+const tableShape = () => {
+  const table = (editor.getJSON() as JSONContent).content!.find((n) => n.type === "table");
+  return table ? table.content!.map((row) => row.content!.length) : null;
+};
+
+test("table_commands_add_and_remove_columns_rows_and_the_table", () => {
+  tableWithCaretInFirstCell();
+  expect(tableShape()).toEqual([3, 3, 3]);
+
+  byId(host(), "column_after").run();
+  expect(tableShape()).toEqual([4, 4, 4]);
+  byId(host(), "column_before").run();
+  expect(tableShape()).toEqual([5, 5, 5]);
+  byId(host(), "column_delete").run();
+  expect(tableShape()).toEqual([4, 4, 4]);
+
+  byId(host(), "row_after").run();
+  expect(tableShape()).toEqual([4, 4, 4, 4]);
+  byId(host(), "row_before").run();
+  expect(tableShape()).toEqual([4, 4, 4, 4, 4]);
+  byId(host(), "row_delete").run();
+  expect(tableShape()).toEqual([4, 4, 4, 4]);
+
+  byId(host(), "table_delete").run();
+  expect(tableShape()).toBeNull();
+});
+
+test("table_commands_leave_the_document_alone_outside_a_table", () => {
+  const before = JSON.stringify(editor.getJSON());
+  for (const id of ["column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "table_delete"]) {
+    expect(() => byId(host(), id).run()).not.toThrow();
+  }
+  expect(JSON.stringify(editor.getJSON())).toBe(before);
+});
+
+test("table_cells_have_borders_between_columns", () => {
+  const css = readFileSync("src/styles.css", "utf8");
+  // a rule for both cell kinds that draws all four sides, so an empty table still reads as rows and columns
+  expect(css).toMatch(/\.doc th,\s*\.doc td\s*\{[^}]*\bborder:\s*1px solid/);
+});
+
 test("view_toggles_patch_the_ui_and_show_their_state", () => {
   const setUi = vi.fn();
   byId(host({ setUi }), "focus").run();
