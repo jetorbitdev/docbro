@@ -28,12 +28,6 @@ export function TopBar({ path, dirty, focus, assistantOpen, run }: Props) {
         <span className="name" data-tauri-drag-region>{name}</span>
         {status && <span className="status" data-tauri-drag-region>{status}</span>}
       </div>
-      <button className="search-btn" title={`Search the menus (${platformKeys("⌘K")} or ${platformKeys("⌥/")})`} onClick={() => run("palette")}>
-        <span className="label">
-          <span className="glyph">⌕</span>Search menus
-        </span>
-        <span className="kbd">{platformKeys("⌘K")}</span>
-      </button>
       <div className="spacer" data-tauri-drag-region />
       <div className="bar-actions">
         <button className={`bar-btn${focus ? " on" : ""}`} title="Focus mode" onClick={() => run("focus")}>

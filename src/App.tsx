@@ -12,9 +12,11 @@ import { seedQuery } from "./editor/find";
 import { FindBar, type FindRequest } from "./editor/FindBar";
 import { CommandPalette } from "./layout/CommandPalette";
 import { Dock } from "./layout/Dock";
+import { FooterZone, HeaderZone } from "./layout/HeaderFooter";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
+import { estimatePages } from "./layout/pages";
 import { Paper } from "./layout/Paper";
 import { ColorPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
@@ -71,6 +73,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
+  const [paperHeight, setPaperHeight] = useState(0);
   const [popover, setPopover] = useState<"link" | "color" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
   const findCount = useRef(0);
@@ -138,6 +141,14 @@ export default function App() {
     };
   }, []);
 
+  // The page count is an estimate from how tall the paper is, as in the mock.
+  useEffect(() => {
+    if (!paper) return;
+    const observer = new ResizeObserver(([entry]) => setPaperHeight(entry.contentRect.height));
+    observer.observe(paper);
+    return () => observer.disconnect();
+  }, [paper]);
+
   const actions = useMemo(
     () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor, openFind }) : {}),
     [editor, session, ui, setUi, openPalette, openLink, openColor, openFind],
@@ -202,6 +213,7 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
+  const pages = estimatePages(paperHeight);
   // the rail takes room from the page, so it is only there when the document has comments to put in it
   const showComments = layout.showComments && (session?.meta.comments.length ?? 0) > 0;
   const comment = commands.find((c) => c.id === "comment");
@@ -230,7 +242,26 @@ export default function App() {
         <main className={`main${layout.assistantOpen ? "" : " wide"}`}>
           <div className="scroll" ref={setScroller}>
             <div className="canvas">
-              <Paper editor={editor} large={ui.largerText} paperRef={setPaper}>
+              <Paper
+                editor={editor}
+                large={ui.largerText}
+                paperRef={setPaper}
+                header={
+                  session && (
+                    <HeaderZone text={session.meta.header} onChange={(patch) => session.setMeta(patch)} />
+                  )
+                }
+                footer={
+                  session && (
+                    <FooterZone
+                      text={session.meta.footer}
+                      pageNumbers={session.meta.pageNumbers}
+                      pages={pages}
+                      onChange={(patch) => session.setMeta(patch)}
+                    />
+                  )
+                }
+              >
                 <SelectionBubble
                   editor={editor}
                   paper={paper}

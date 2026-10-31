@@ -13,6 +13,7 @@ const keepFocus = (e: MouseEvent) => e.preventDefault();
 export function MenuBar({ commands, visible }: { commands: Command[]; visible: boolean }) {
   const [open, setOpen] = useState<Group | null>(null);
   const larger = commands.find((c) => c.id === "larger_text");
+  const palette = commands.find((c) => c.id === "palette");
 
   useEffect(() => {
     if (!visible) setOpen(null);
@@ -56,6 +57,14 @@ export function MenuBar({ commands, visible }: { commands: Command[]; visible: b
           </div>
         ))}
         <div className="spacer" />
+        {palette && (
+          <button className="search-btn" title={`Search the menus (${platformKeys("⌘K")} or ${platformKeys("⌥/")})`} onClick={palette.run}>
+            <span className="label">
+              <span className="glyph">⌕</span>Search menus
+            </span>
+            <span className="kbd">{platformKeys("⌘K")}</span>
+          </button>
+        )}
         {larger && (
           <button className={`big-btn${larger.state ? " on" : ""}`} title="Make text larger" onClick={larger.run}>
             <span className="aa">

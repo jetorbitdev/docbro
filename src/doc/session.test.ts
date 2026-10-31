@@ -122,7 +122,7 @@ test("save_as_refuses_to_overwrite_another_file_unless_asked", async () => {
 });
 
 test("first_save_over_a_lossy_import_needs_confirmation", async () => {
-  io.files.set("/d/a.docx", await buildDocx({ document: BODY, header: true }));
+  io.files.set("/d/a.docx", await buildDocx({ document: BODY, header: "two-paragraphs" }));
   await s.open("/d/a.docx");
   expect(s.dropped).toEqual(["headers"]);
   const original = io.files.get("/d/a.docx")!;
@@ -152,7 +152,7 @@ test("saving_under_a_new_name_keeps_the_original_and_needs_no_confirmation", asy
 });
 
 test("the_lossy_message_lists_every_dropped_part_in_plain_words", async () => {
-  io.files.set("/d/a.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true, comments: true }));
+  io.files.set("/d/a.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs", comments: true }));
   await s.open("/d/a.docx");
   expect(s.dropped).toEqual(["headers", "comments", "tracked_changes", "other_content"]);
   await expect(s.save()).rejects.toThrow(
@@ -420,7 +420,7 @@ test("works_on_an_editor_that_is_not_mounted", async () => {
 
 test("a_save_in_flight_finishes_before_a_later_open_starts", async () => {
   io.files.set("/d/a.docx", await buildDocx({ document: BODY }));
-  io.files.set("/d/b.docx", await buildDocx({ document: "<w:p><w:r><w:t>Other</w:t></w:r></w:p>", header: true }));
+  io.files.set("/d/b.docx", await buildDocx({ document: "<w:p><w:r><w:t>Other</w:t></w:r></w:p>", header: "two-paragraphs" }));
   await s.open("/d/a.docx");
 
   const { hold, release } = latch();

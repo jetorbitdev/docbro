@@ -2,6 +2,7 @@ import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
 import JSZip from "jszip";
 import { emptyMeta, type DocMeta } from "../../doc/meta";
+import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
@@ -82,7 +83,8 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     dropped: await droppedParts(zip, body),
   };
   const doc = finish(blocks(body, ctx));
-  return { doc, meta: emptyMeta(), dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
+  const meta = await readHeaderFooter(zip, body, relations, ctx.dropped);
+  return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
 }
 
 // --- Package -----------------------------------------------------------------
@@ -194,6 +196,159 @@ async function droppedParts(zip: JSZip, body: Element): Promise<Set<DroppedPart>
   if (descendants(body, "w:sectPr").some((s) => !is(s.parentElement!, "w:sectPrChange") && customPage(s))) dropped.add("page_setup");
   if (["w:txbxContent", "c:chart", "dgm:*", "m:oMath"].some((name) => descendants(body, name).length)) dropped.add("other_content");
   return dropped;
+}
+
+// --- Header and footer -------------------------------------------------------------
+
+type HeaderFooterKind = "header" | "footer";
+
+// Anything a one-line zone cannot hold. A part with one of these stays in `dropped`.
+const NOT_A_LINE = ["w:tbl", "w:drawing", "w:pict", "w:object", "w:sym", "w:contentPart", "w:txbxContent", "m:oMath", "c:chart", "dgm:*"];
+
+/**
+ * The default header and footer of the last section, when each is a single plain paragraph.
+ * A richer one, or a first/even-page variant, is left for `dropped` to report. The text of
+ * a PAGE field is not part of the label; it only turns the footer's page numbers on.
+ */
+async function readHeaderFooter(
+  zip: JSZip,
+  body: Element,
+  relations: Map<string, Relation>,
+  dropped: Set<DroppedPart>,
+): Promise<DocMeta> {
+  const meta = emptyMeta();
+  const sections = descendants(body, "w:sectPr").filter((s) => !is(s.parentElement!, "w:sectPrChange"));
+  const section = sections[sections.length - 1] ?? null;
+
+  for (const kind of ["header", "footer"] as const) {
+    const refs = children(section, kind === "header" ? "w:headerReference" : "w:footerReference");
+    if (!refs.length) continue;
+    // A first or even page header/footer is a variant DocBro has no room for.
+    if (refs.some((ref) => (attr(ref, "w:type") ?? "default") !== "default")) continue;
+
+    const rel = relations.get(attr(refs[refs.length - 1], "r:id") ?? "");
+    if (!rel || rel.external) continue;
+    const doc = await readXml(zip, partPath(rel.target));
+    const line = doc && simpleLine(doc, kind);
+    if (!line) continue;
+
+    if (kind === "header") {
+      meta.header = line.text;
+      dropped.delete("headers");
+    } else {
+      meta.footer = line.text;
+      meta.pageNumbers = line.pageNumbers;
+      dropped.delete("footers");
+    }
+  }
+  return meta;
+}
+
+function simpleLine(doc: Document, kind: HeaderFooterKind): { text: string; pageNumbers: boolean } | null {
+  const name = kind === "header" ? "w:hdr" : "w:ftr";
+  const root = is(doc.documentElement, name) ? doc.documentElement : first(doc.documentElement, name);
+  if (!root) return null;
+  const content = children(root).filter((el) => !is(el, "w:sectPr"));
+  if (content.length !== 1 || !is(content[0], "w:p")) return null;
+  const paragraph = content[0];
+  if (NOT_A_LINE.some((name) => descendants(paragraph, name).length)) return null;
+  return readLine(paragraph);
+}
+
+interface Field {
+  instr: string;
+  phase: "instr" | "result";
+  kind: "page" | "total" | null;
+}
+
+function readLine(paragraph: Element): { text: string; pageNumbers: boolean } | null {
+  let text = "";
+  let pageNumbers = false;
+  let complex = false;
+  let field: Field | null = null;
+
+  const kindOf = (instr: string): "page" | "total" | null => {
+    const word = instr.trim().split(/\s+/)[0] ?? "";
+    return word === "PAGE" ? "page" : word === "NUMPAGES" ? "total" : null;
+  };
+  const evaluate = (): "page" | "total" | null => {
+    const kind = field ? kindOf(field.instr) : null;
+    if (field) field.kind = kind;
+    if (!kind) complex = true;
+    return kind;
+  };
+  const add = (value: string) => {
+    if (!field || field.phase !== "result") text += value;
+  };
+
+  const run = (r: Element) => {
+    for (const el of children(r)) {
+      if (is(el, "w:t")) add(el.textContent ?? "");
+      else if (is(el, "w:tab") || is(el, "w:ptab")) add("\t");
+      else if (is(el, "w:br") || is(el, "w:cr")) add("\n");
+      else if (is(el, "w:noBreakHyphen")) add("‑");
+      else if (is(el, "w:softHyphen")) add("\u00ad");
+      else if (is(el, "w:fldChar")) {
+        const type = attr(el, "w:fldCharType");
+        if (type === "begin") {
+          if (field) complex = true;
+          field = { instr: "", phase: "instr", kind: null };
+        } else if (type === "separate") {
+          if (!field) complex = true;
+          else {
+            evaluate();
+            field.phase = "result";
+          }
+        } else if (type === "end") {
+          if (!field) complex = true;
+          else {
+            if (field.kind === null) evaluate();
+            if (field.kind === "page") pageNumbers = true;
+            field = null;
+          }
+        }
+      } else if (is(el, "w:instrText")) {
+        if (!field) complex = true;
+        else field.instr += el.textContent ?? "";
+      } else if (is(el, "w:rPr")) continue;
+      else complex = true;
+    }
+  };
+
+  const walk = (parent: Element | null) => {
+    for (const el of children(parent)) {
+      if (is(el, "w:r")) run(el);
+      else if (
+        is(el, "w:hyperlink") || is(el, "w:ins") || is(el, "w:smartTag") ||
+        is(el, "w:customXml") || is(el, "w:dir") || is(el, "w:bdo")
+      ) walk(el);
+      else if (is(el, "w:sdt")) walk(first(el, "w:sdtContent"));
+      else if (is(el, "mc:AlternateContent")) walk(choice(el));
+      else if (is(el, "w:fldSimple")) {
+        const kind = kindOf(attr(el, "w:instr") ?? "");
+        if (!kind) complex = true;
+        if (kind === "page") pageNumbers = true;
+      } else if (
+        is(el, "w:pPr") || is(el, "w:proofErr") || is(el, "w:bookmarkStart") || is(el, "w:bookmarkEnd") ||
+        is(el, "w:commentRangeStart") || is(el, "w:commentRangeEnd") || is(el, "w:permStart") ||
+        is(el, "w:permEnd") || is(el, "w:lastRenderedPageBreak")
+      ) continue;
+      else complex = true;
+    }
+  };
+
+  walk(paragraph);
+  if (complex) return null;
+  return { text: cleanLine(text, pageNumbers), pageNumbers };
+}
+
+// The tab that pushes the page label right, and the label's own literal words, are not the footer's text.
+function cleanLine(text: string, pageNumbers: boolean): string {
+  const line = text
+    .replace(/[\t\u00a0]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return pageNumbers ? line.replace(/\s*Page\s+of\s*$/i, "").trim() : line;
 }
 
 // --- Styles and numbering --------------------------------------------------------
@@ -439,8 +594,9 @@ function runMarks(rPr: Element | null, link: Mark | null): Mark[] {
   const underline = first(rPr, "w:u");
   if (underline && attr(underline, "w:val") !== "none") marks.push({ type: "underline" });
   if (toggle(first(rPr, "w:strike")) || toggle(first(rPr, "w:dstrike"))) marks.push({ type: "strike" });
+  // The source's own default text color (Word and Google Docs stamp one on every run) would vanish on the other theme; a choice is kept.
   const color = hex(attr(first(rPr, "w:color"), "w:val"));
-  if (color) marks.push({ type: "textStyle", attrs: { color } });
+  if (color && !isAutomaticColor(color)) marks.push({ type: "textStyle", attrs: { color } });
   const highlight = lookup(HIGHLIGHT, attr(first(rPr, "w:highlight"), "w:val")) ?? hex(attr(first(rPr, "w:shd"), "w:fill"));
   if (highlight) marks.push({ type: "highlight", attrs: { color: highlight } });
   if (link) marks.push(link);

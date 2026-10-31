@@ -38,26 +38,43 @@ export async function buildDocx(parts: {
   document: string;
   styles?: string;
   numbering?: string;
-  header?: boolean;
+  header?: boolean | "two-paragraphs";
   comments?: boolean;
 }): Promise<Uint8Array> {
   const overrides = [`<Override PartName="/word/document.xml" ContentType="${TYPE}.document.main+xml"/>`];
   const rels: string[] = [];
   const whole = parts.document.trimStart().startsWith("<?xml");
-  const files: Record<string, string> = {
-    "word/document.xml": whole ? parts.document : part("w:document", `<w:body>${parts.document}</w:body>`),
-  };
+  const files: Record<string, string> = {};
   const add = (name: string, kind: string, xml: string) => {
     files[`word/${name}.xml`] = xml;
     overrides.push(`<Override PartName="/word/${name}.xml" ContentType="${TYPE}.${kind}+xml"/>`);
-    rels.push(`<Relationship Id="rId${rels.length + 1}" Type="${REL}/${kind}" Target="${name}.xml"/>`);
+    const id = `rId${rels.length + 1}`;
+    rels.push(`<Relationship Id="${id}" Type="${REL}/${kind}" Target="${name}.xml"/>`);
+    return id;
   };
   if (parts.styles !== undefined) add("styles", "styles", part("w:styles", parts.styles));
   if (parts.numbering !== undefined) add("numbering", "numbering", part("w:numbering", parts.numbering));
-  if (parts.header) add("header1", "header", part("w:hdr", "<w:p><w:r><w:t>Header text</w:t></w:r></w:p>"));
+  let headerId: string | undefined;
+  if (parts.header) {
+    const paragraphs =
+      parts.header === "two-paragraphs"
+        ? "<w:p><w:r><w:t>Header text</w:t></w:r></w:p><w:p><w:r><w:t>Second line</w:t></w:r></w:p>"
+        : "<w:p><w:r><w:t>Header text</w:t></w:r></w:p>";
+    headerId = add("header1", "header", part("w:hdr", paragraphs));
+  }
   if (parts.comments)
     add("comments", "comments", part("w:comments",
       '<w:comment w:id="0" w:author="Rina" w:date="2026-10-01T09:00:00Z" w:initials="R"><w:p><w:r><w:t>Comment text</w:t></w:r></w:p></w:comment>'));
+
+  // Without a section reference Word would not use the header, and the importer would not see it.
+  const section = headerId
+    ? `<w:sectPr><w:headerReference w:type="default" r:id="${headerId}"/>` +
+      '<w:pgSz w:w="12240" w:h="15840"/>' +
+      '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
+    : "";
+  files["word/document.xml"] = whole
+    ? parts.document
+    : part("w:document", `<w:body>${parts.document}${section}</w:body>`);
 
   return zipWith({
     ...files,

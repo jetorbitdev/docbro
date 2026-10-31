@@ -7,6 +7,30 @@ import { TextAlign } from "@tiptap/extension-text-align";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
+import { isAutomaticColor } from "./automaticColor";
+
+// Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
+// have turned the default text light. Those colors are dropped as the HTML is read; the rest are kept as they came.
+const PastedColor = Color.extend({
+  addGlobalAttributes() {
+    return (this.parent?.() ?? []).map((group) => {
+      const original = group.attributes.color?.parseHTML;
+      return {
+        ...group,
+        attributes: {
+          ...group.attributes,
+          color: {
+            ...group.attributes.color,
+            parseHTML: (element: HTMLElement) => {
+              const value = original?.(element);
+              return typeof value === "string" && isAutomaticColor(value) ? null : value;
+            },
+          },
+        },
+      };
+    });
+  },
+});
 
 // The one schema every part of DocBro shares: the editor, the headless
 // conversions (docx, Markdown, MCP tools) and the tests.
@@ -30,7 +54,7 @@ export function createExtensions(): Extensions {
     }),
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     TextStyle,
-    Color,
+    PastedColor,
     Highlight.configure({ multicolor: true }),
     Table.configure({ resizable: false }),
     TableRow,

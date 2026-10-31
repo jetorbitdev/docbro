@@ -10,6 +10,7 @@ import {
   saveDocument,
   type Shell,
 } from "./actions";
+import { buildCommands } from "./commands";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createHeadlessEditor } from "./editor/headless";
 import { UNKNOWN_FORMAT } from "./formats";
@@ -262,7 +263,9 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   const print = vi.spyOn(window, "print").mockImplementation(() => {});
   const ui = {} as UiState;
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette, shell });
-  expect(Object.keys(actions).sort()).toEqual(["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs"]);
+  expect(Object.keys(actions).sort()).toEqual(
+    ["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs", "toggleFooter", "toggleHeader", "togglePageNumbers"],
+  );
   actions.palette!();
   expect(openPalette).toHaveBeenCalledOnce();
   actions.print!();
@@ -278,7 +281,10 @@ test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
   const openColor = vi.fn();
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, openLink, openColor, shell: fakeShell() });
   expect(Object.keys(actions).sort()).toEqual(
-    ["insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs"],
+    [
+      "insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs",
+      "toggleFooter", "toggleHeader", "togglePageNumbers",
+    ],
   );
   actions.insertImage!();
   expect(pickImage).toHaveBeenCalledWith(editor);
@@ -286,6 +292,50 @@ test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
   expect(openLink).toHaveBeenCalledOnce();
   actions.pickColor!();
   expect(openColor).toHaveBeenCalledOnce();
+});
+
+test("header_footer_and_page_numbers_edit_the_documents_meta", () => {
+  const ui = {} as UiState;
+  const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, shell: fakeShell() });
+
+  actions.toggleHeader!();
+  expect(session.meta.header).toBe("");
+  actions.toggleHeader!();
+  expect(session.meta.header).toBeNull();
+
+  actions.togglePageNumbers!(); // page numbers alone bring the footer on
+  expect(session.meta).toMatchObject({ footer: "", pageNumbers: true });
+  actions.togglePageNumbers!();
+  expect(session.meta.pageNumbers).toBe(false);
+
+  actions.toggleFooter!();
+  expect(session.meta.footer).toBeNull();
+  expect(session.meta.pageNumbers).toBe(false);
+
+  actions.toggleFooter!();
+  expect(session.meta.footer).toBe("");
+});
+
+test("every_command_is_enabled_in_the_real_app", () => {
+  const ui: UiState = {
+    focus: false, hideOutline: false, forceOutline: false, hideComments: false,
+    assistantOpen: false, menuBar: true, largerText: false, sansFont: false,
+  };
+  const setUi = () => {};
+  const actions = buildActions({
+    editor,
+    session,
+    ui,
+    setUi,
+    openPalette: () => {},
+    openLink: () => {},
+    openColor: () => {},
+    openFind: () => {},
+    shell: fakeShell(),
+  });
+  const commands = buildCommands({ editor, session, ui, setUi, actions });
+  // Task 13 adds the comment action; every other command has its action.
+  expect(commands.filter((c) => !c.enabled).map((c) => c.id)).toEqual(["comment"]);
 });
 
 test("find_and_replace_open_the_find_bar_in_their_two_modes", () => {

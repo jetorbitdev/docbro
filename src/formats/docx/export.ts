@@ -4,13 +4,18 @@ import {
   BorderStyle,
   Document,
   ExternalHyperlink,
+  Footer,
+  Header,
   HeadingLevel,
   ImageRun,
   LevelFormat,
   Packer,
+  PageNumber,
   Paragraph,
   ShadingType,
   Tab,
+  TabStopPosition,
+  TabStopType,
   Table,
   TableCell,
   TableRow,
@@ -48,11 +53,17 @@ interface Context {
   starts: Set<number>;
 }
 
-// `meta` (comments, header, footer, page numbers) is not written yet.
-export async function exportDocx(doc: JSONContent, _meta?: DocMeta): Promise<Uint8Array> {
+// `meta.header` and `meta.footer` are the one-line zones DocBro's paper shows; page
+// numbers become a Page/NumPages field pair at the footer's right edge.
+export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint8Array> {
   const ctx: Context = { nextInstance: 0, starts: new Set([1]) };
   const children: Block[] = blocks(doc.content, ctx);
   if (children.length === 0) children.push(new Paragraph({}));
+  const header =
+    meta && meta.header !== null
+      ? new Header({ children: [new Paragraph({ children: meta.header ? [new TextRun(meta.header)] : [] })] })
+      : undefined;
+  const footer = meta && (meta.footer !== null || meta.pageNumbers) ? new Footer({ children: [footerParagraph(meta)] }) : undefined;
 
   const file = new Document({
     creator: "DocBro",
@@ -87,11 +98,31 @@ export async function exportDocx(doc: JSONContent, _meta?: DocMeta): Promise<Uin
     sections: [
       {
         properties: { page: { size: LETTER, margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN } } },
+        ...(header && { headers: { default: header } }),
+        ...(footer && { footers: { default: footer } }),
         children,
       },
     ],
   });
   return Packer.pack(file, "uint8array");
+}
+
+function footerParagraph(meta: DocMeta): Paragraph {
+  const children: TextRun[] = [];
+  if (meta.footer) children.push(new TextRun(meta.footer));
+  if (meta.pageNumbers) {
+    if (meta.footer) children.push(new TextRun({ children: [new Tab()] }));
+    children.push(
+      new TextRun("Page "),
+      new TextRun({ children: [PageNumber.CURRENT] }),
+      new TextRun(" of "),
+      new TextRun({ children: [PageNumber.TOTAL_PAGES] }),
+    );
+  }
+  return new Paragraph({
+    tabStops: meta.footer && meta.pageNumbers ? [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }] : undefined,
+    children,
+  });
 }
 
 const numberReference = (start: number) => (start === 1 ? "docbro-number" : `docbro-number-${start}`);

@@ -173,6 +173,9 @@ function documentInfo({ editor, session }: ToolContext): string {
     blocks: blockCount(doc),
     words,
     characters,
+    header: session.meta.header,
+    footer: session.meta.footer,
+    page_numbers: session.meta.pageNumbers,
     dropped: session.dropped,
     outline: outlineOf(doc).map(({ pos, level, text }) => ({ block: doc.resolve(pos).index(0) + 1, level, text })),
   });

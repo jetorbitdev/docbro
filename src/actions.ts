@@ -160,6 +160,13 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     print: () => window.print(),
     palette: openPalette,
     insertImage: () => void pickImage(editor),
+    toggleHeader: () => session.setMeta({ header: session.meta.header === null ? "" : null }),
+    toggleFooter: () =>
+      session.setMeta(session.meta.footer === null ? { footer: "" } : { footer: null, pageNumbers: false }),
+    togglePageNumbers: () => {
+      const { footer, pageNumbers } = session.meta;
+      session.setMeta(footer === null ? { footer: "", pageNumbers: true } : { pageNumbers: !pageNumbers });
+    },
     ...(openLink && { insertLink: openLink }),
     ...(openColor && { pickColor: openColor }),
     ...(openFind && { find: () => openFind(false), replace: () => openFind(true) }),

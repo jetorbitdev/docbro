@@ -406,6 +406,9 @@ test("document_info_describes_the_document", async () => {
     blocks: 6, // the editor keeps an empty line after a last heading
     words: 7,
     characters: 33,
+    header: null,
+    footer: null,
+    page_numbers: false,
     dropped: [],
     outline: [
       { block: 1, level: 1, text: "Title" },
@@ -414,7 +417,7 @@ test("document_info_describes_the_document", async () => {
     ],
   });
 
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
   await ok("open_document", { path: "/d/lossy.docx", discard: true });
   expect(JSON.parse(await ok("document_info"))).toMatchObject({
     name: "lossy.docx",
@@ -429,7 +432,7 @@ test("document_info_describes_the_document", async () => {
 test("open_document_reports_blocks_and_parts_it_could_not_keep", async () => {
   io.files.set("/d/a.md", new TextEncoder().encode("# A\n\nbody"));
   expect(await ok("open_document", { path: "/d/a.md" })).toBe("Opened a.md (2 blocks).");
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
   expect(await ok("open_document", { path: "/d/lossy.docx" })).toBe(
     "Opened lossy.docx (2 blocks). DocBro can't keep these parts of the file: headers, tracked changes, other content. " +
       "Saving over the file will remove them.");
@@ -451,7 +454,7 @@ test("save_document_passes_the_sessions_refusals_through", async () => {
   expect(await err("save_document", { path: "/d/taken.md" })).toBe("/d/taken.md already exists. Pass overwrite: true to replace it.");
   expect(await ok("save_document", { path: "/d/taken.md", overwrite: true })).toBe("Saved to /d/taken.md.");
 
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
   await ok("open_document", { path: "/d/lossy.docx" });
   expect(await err("save_document")).toBe(
     "Saving will remove parts DocBro can't keep: headers, tracked changes, other content. Save under a new name, or confirm.");

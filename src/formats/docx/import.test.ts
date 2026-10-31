@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import JSZip from "jszip";
 import { expect, test } from "vitest";
+import { emptyMeta } from "../../doc/meta";
 import { exportDocx } from "./export";
 import { fixtureDoc } from "./fixture";
 import { importDocx } from "./import";
@@ -31,11 +32,38 @@ test("reads_word_style_names_lists_and_highlight", async () => {
 });
 
 test("reports_parts_it_cannot_keep", async () => {
-  const bytes = await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true, comments: true });
+  const bytes = await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs", comments: true });
   const { doc, dropped } = await importDocx(bytes);
   expect(dropped).toEqual(expect.arrayContaining(["headers", "comments", "tracked_changes", "other_content"]));
   expect(plainText(doc)).toContain("inserted");
   expect(plainText(doc)).not.toContain("deleted");
+});
+
+test("a_one_line_header_is_kept", async () => {
+  const { meta, dropped } = await importDocx(await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: true }));
+  expect(meta.header).toBe("Header text");
+  expect(dropped).not.toContain("headers");
+});
+
+test("header_footer_and_page_numbers_round_trip_through_docx", async () => {
+  const meta = { ...emptyMeta(), header: "Q4 brief · Internal", footer: "DocBro", pageNumbers: true };
+  const back = await importDocx(await exportDocx(fixtureDoc(), meta));
+  expect(back.meta).toMatchObject({ header: "Q4 brief · Internal", footer: "DocBro", pageNumbers: true });
+  expect(back.dropped).toEqual([]);
+});
+
+test("page_numbers_alone_create_a_footer", async () => {
+  const bytes = await exportDocx(fixtureDoc(), { ...emptyMeta(), pageNumbers: true });
+  const zip = await JSZip.loadAsync(bytes);
+  expect(zip.file("word/footer1.xml")).toBeTruthy();
+  const back = await importDocx(bytes);
+  expect(back.meta).toMatchObject({ footer: "", pageNumbers: true });
+  expect(back.dropped).toEqual([]);
+});
+
+test("a_complex_header_is_still_reported_as_dropped", async () => {
+  const { dropped } = await importDocx(await buildDocx({ document: WORD_STYLE_BODY, header: "two-paragraphs" }));
+  expect(dropped).toEqual(["headers"]);
 });
 
 test("refuses_a_zip_that_is_not_a_word_document", async () => {
@@ -274,6 +302,11 @@ test("reads_word_alignment_and_run_properties", async () => {
     t("merah", { type: "bold" }, { type: "underline" }, { type: "strike" },
       { type: "textStyle", attrs: { color: "#ff0000" } }, { type: "highlight", attrs: { color: "#000080" } }),
   ))).content![0]);
+});
+
+test("drops_the_source_default_text_color_but_keeps_a_choice", async () => {
+  const { doc: imported } = await read({ document: p(r("ab", '<w:color w:val="000000"/>') + r("cd", '<w:color w:val="FFFFFF"/>') + r("ef", '<w:color w:val="357FC8"/>')) });
+  expect(imported).toEqual(normalize({ type: "doc", content: [para(t("abcd"), t("ef", { type: "textStyle", attrs: { color: "#357fc8" } }))] }));
 });
 
 test("reads_list_numbering_from_word", async () => {

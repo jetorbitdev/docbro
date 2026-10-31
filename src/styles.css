@@ -1,19 +1,19 @@
 :root{--bg:#f2f0ea;--surface:#fff;--surface2:#fbfaf7;--head:#f3f1ec;--hover:#eeece6;--soft:#efede7;--accent-soft:#e4eee8;--hl:#fbefb3;--hl-line:#e0c84a;--accent:#1f6b4a;--accent-h:#185a3e;--accent-ink:#1f6b4a;--line:#e2dfd6;--line2:#dcd9cf;--ink:#1d1f1c;--ink2:#4a4c46;--ink3:#5e6058;--muted:#7a7c74;--pill:#1d1f1c;--pill-ink:#f2f0ea;--pill-hover:#33352f;--t-blue-bg:#e6eff8;--t-blue:#2c5a86;--t-amber-bg:#f6ecdf;--t-amber:#8a5a1f;color-scheme:light}
 @media screen{[data-theme=dark]{--bg:#121311;--surface:#1c1d1b;--surface2:#171816;--head:#232521;--hover:#2b2d29;--soft:#272925;--accent-soft:#1e3328;--hl:#45401f;--hl-line:#8f7d2c;--accent:#2a8159;--accent-h:#33925f;--accent-ink:#6cc196;--line:#2a2c28;--line2:#3a3c37;--ink:#ecebe5;--ink2:#c4c3bb;--ink3:#a8a89f;--muted:#8e8f87;--pill:#ecebe5;--pill-ink:#1d1f1c;--pill-hover:#d6d5ce;--t-blue-bg:#1d2a38;--t-blue:#8fb8e3;--t-amber-bg:#33281a;--t-amber:#e0b27a;color-scheme:dark}}
-html,body{margin:0;height:100%;background:var(--bg);font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+html,body{margin:0;height:100%;background:var(--bg);font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased}
 a{color:var(--accent-ink);text-decoration:none}a:hover{color:var(--accent-h)}
 button,textarea{font-family:inherit}
 *{box-sizing:border-box}
 .doc{outline:none;font-size:17px;line-height:1.72;color:var(--ink);caret-color:var(--accent-ink)}
-.doc h1{font-family:'IBM Plex Sans',sans-serif;font-size:36px;line-height:1.12;letter-spacing:-.03em;font-weight:600;margin:0 0 .5em}
-.doc h2{font-family:'IBM Plex Sans',sans-serif;font-size:22px;line-height:1.3;letter-spacing:-.015em;font-weight:600;margin:1.8em 0 .5em}
-.doc h3{font-family:'IBM Plex Sans',sans-serif;font-size:17px;font-weight:600;margin:1.6em 0 .4em}
+.doc h1{font-family:var(--font);font-size:36px;line-height:1.12;letter-spacing:-.03em;font-weight:600;margin:0 0 .5em}
+.doc h2{font-family:var(--font);font-size:22px;line-height:1.3;letter-spacing:-.015em;font-weight:600;margin:1.8em 0 .5em}
+.doc h3{font-family:var(--font);font-size:17px;font-weight:600;margin:1.6em 0 .4em}
 .doc p{margin:0 0 1em}
 .doc ul,.doc ol{margin:0 0 1em;padding-left:1.4em}
 .doc li{margin:.25em 0;padding-left:.2em}
 .doc blockquote{margin:1.4em 0;padding:4px 0 4px 20px;border-left:2px solid var(--line2);font-style:italic;color:var(--ink2)}
 .doc hr{border:0;border-top:1px solid var(--line);margin:2em 0}
-.doc table{width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;line-height:1.4}
+.doc table{width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:var(--font);font-size:13.5px;line-height:1.4}
 .doc th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--head)}
 .doc td{padding:8px 10px;border-bottom:1px solid var(--line)}
 .doc mark{background:var(--hl);color:inherit;border-radius:2px;padding:0 1px}
@@ -21,25 +21,27 @@ button,textarea{font-family:inherit}
 .doc ::selection{background:var(--accent-soft)}
 
 /* ---------------------------------------------------------------- window layout (mock 39–365) */
-:root{--doc-font:'IBM Plex Serif',Georgia,serif;--menubar-h:36px;--outline-w:210px;--rail-w:40px;--comments-w:270px;--comments-gap:28px;--panel-ms:220ms;--panel-curve:cubic-bezier(.2,.8,.2,1)}
-[data-font=sans]{--doc-font:'IBM Plex Sans',system-ui,sans-serif}
+:root{--font:'Inter',system-ui,sans-serif;--doc-font:var(--font);--menubar-h:36px;--outline-w:210px;--rail-w:40px;--comments-w:270px;--comments-gap:28px;--panel-ms:220ms;--panel-curve:cubic-bezier(.2,.8,.2,1)}
+[data-font=sans]{--doc-font:var(--font)}
 .app{height:100vh;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
 .spacer{flex:1}
-.kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink3)}
+.kbd{font-family:var(--font);font-size:11px;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink3)}
 
 /* top bar (41–65): the window's drag region, 52px so the traffic lights sit in its middle */
 .topbar{display:flex;align-items:center;gap:14px;height:52px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--surface2);flex-shrink:0;-webkit-user-select:none;user-select:none}
-.topbar.mac{padding-left:78px}
+/* the traffic lights end about 70px in (tauri.conf.json); the logo keeps 20px clear of them */
+.topbar.mac{padding-left:90px}
 .logo{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
 .crumbs{display:flex;align-items:center;gap:8px;font-size:13.5px;min-width:0}
 .crumbs .folder{color:var(--muted);white-space:nowrap}
 .crumbs .slash{color:var(--line2)}
 .crumbs .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crumbs .status{font-size:12px;color:var(--muted);white-space:nowrap;padding-left:6px}
-.search-btn{height:32px;padding:0 6px 0 10px;margin-left:8px;border:1px solid var(--line2);background:var(--surface);color:var(--muted);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:10px;flex-shrink:0}
+/* in the menu bar, left of Larger text, the same size as it */
+.search-btn{height:26px;padding:0 3px 0 8px;margin-right:6px;border:1px solid var(--line2);background:var(--surface);color:var(--muted);border-radius:7px;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:8px;flex-shrink:0}
 .search-btn:hover{border-color:var(--accent-ink)}
 .search-btn .label{display:flex;align-items:center;gap:6px}
-.search-btn .glyph{font-size:14px}
+.search-btn .glyph{font-size:13px}
 .bar-actions{display:flex;gap:6px;flex-shrink:0}
 .bar-btn{height:32px;padding:0 12px;border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:7px}
 .bar-btn:hover{background:var(--hover)}
@@ -67,12 +69,13 @@ button,textarea{font-family:inherit}
 .menu-item .icon{width:20px;text-align:center;color:var(--ink3);font-size:13px;font-weight:600}
 .menu-item .label,.pal-item .label{flex:1}
 .menu-item .state{font-size:11.5px;font-weight:600;color:var(--accent-ink)}
-.menu-item .keys{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted)}
-.big-btn{height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:7px;background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.menu-item .keys{font-family:var(--font);font-size:11.5px;color:var(--muted)}
+/* Larger text and Search menus: small, quiet buttons at the right end of the menu bar */
+.big-btn{height:26px;padding:0 8px;border:1px solid var(--line2);border-radius:7px;background:var(--surface);color:var(--ink);font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:5px}
 .big-btn:hover{background:var(--hover)}
 .big-btn.on{background:var(--accent-soft)}
-.big-btn .aa{font-weight:600}
-.big-btn .aa span{font-size:16px}
+.big-btn .aa{font-weight:600;font-size:11px}
+.big-btn .aa span{font-size:13px}
 .menu-backdrop{position:fixed;inset:0;z-index:20}
 
 .workspace{flex:1;display:flex;min-height:0}
@@ -96,7 +99,7 @@ button,textarea{font-family:inherit}
 .rail-btn{width:28px;height:28px;border:1px solid var(--line2);border-radius:7px;background:var(--surface);color:var(--ink2);font-size:14px;cursor:pointer}
 .rail-btn:hover{background:var(--hover)}
 .outline-head{padding:8px 8px 2px 16px;display:flex;align-items:center;gap:8px}
-.caption{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:.04em}
+.caption{font-family:var(--font);font-size:11px;color:var(--muted);letter-spacing:.04em}
 .outline-head .caption{flex:1}
 .ghost-btn{width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--ink2);font-size:14px;cursor:pointer}
 .ghost-btn:hover{background:var(--hover)}
@@ -108,7 +111,8 @@ button,textarea{font-family:inherit}
 .outline-item.active{background:var(--accent-soft);color:var(--accent-ink)}
 .outline-item:hover{background:var(--hover)}
 .outline-foot{padding:12px 14px 10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
-.stats{display:flex;flex-wrap:wrap;gap:2px 14px;margin-bottom:2px;font-size:13px;color:var(--muted)}
+/* the counts do not fit one line at any readable size, so they stack rather than wrap at random widths */
+.stats{display:flex;flex-direction:column;gap:1px;font-size:12px;color:var(--muted);white-space:nowrap}
 .stats b{font-weight:600;color:var(--ink)}
 .file-card{display:flex;align-items:center;gap:8px;min-height:29px;padding:3px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);min-width:0}
 .file-card .tile{width:20px;height:20px;border-radius:5px;background:var(--accent-soft);color:var(--accent-ink);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -124,6 +128,21 @@ button,textarea{font-family:inherit}
 .scroll[data-pinning]{overflow-anchor:none}
 .canvas{display:flex;justify-content:center;align-items:flex-start;padding:48px 24px 160px}
 .paper{position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:clamp(28px,7vw,80px) clamp(22px,7vw,84px) 96px}
+/* header and footer zones (mock 134–155) */
+.hf-add{position:absolute;left:0;right:0;border:0;background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);text-align:left;padding:0 16px;transition:opacity .15s}
+.hf-add:hover{opacity:1}
+.hf-add-header{top:0;height:clamp(28px,7vw,80px);border-bottom:1px dashed var(--line2)}
+.hf-add-footer{bottom:0;height:80px;border-top:1px dashed var(--line2)}
+.hf-zone{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink3)}
+.hf-header{margin:calc(-1 * clamp(28px,7vw,80px) + 24px) 0 40px;padding-bottom:10px;border-bottom:1px dashed var(--line2)}
+.hf-footer{margin:48px 0 -64px;padding-top:10px;border-top:1px dashed var(--line2)}
+.hf-tag{font-family:var(--font);font-size:10.5px;padding:2px 6px;border-radius:4px;background:var(--soft);color:var(--muted);flex:none}
+.hf-line{flex:1;min-width:0;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;padding:2px 0}
+.hf-line:empty::before{content:attr(data-placeholder);color:var(--muted)}
+.hf-btn{height:24px;padding:0 8px;border:0;background:transparent;color:var(--muted);border-radius:6px;font-size:11.5px;cursor:pointer;flex:none}
+.hf-btn:hover{background:var(--hover)}
+.hf-page{height:24px;padding:0 8px;border:1px solid var(--line2);background:transparent;color:var(--ink2);border-radius:6px;font-size:11.5px;cursor:pointer;font-family:var(--font);flex:none}
+.hf-page.on{background:var(--surface)}
 .doc{font-family:var(--doc-font)}
 .doc.large{zoom:1.2}
 .doc .ProseMirror{outline:none;min-height:600px}
@@ -136,7 +155,7 @@ button,textarea{font-family:inherit}
 .assistant-inner{width:var(--assistant-w);height:100%;display:flex;flex-direction:column;min-height:0}
 .assistant-head{display:flex;align-items:center;gap:10px;padding:14px 16px 10px}
 .assistant-head .title{font-size:16px;font-weight:600;letter-spacing:-.01em}
-.pill{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
+.pill{font-family:var(--font);font-size:11px;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
 .close-btn{width:30px;height:30px;border:0;background:transparent;color:var(--ink2);border-radius:7px;font-size:16px;cursor:pointer}
 .close-btn:hover{background:var(--hover)}
 
@@ -156,7 +175,7 @@ button,textarea{font-family:inherit}
 .pal-item.sel{background:var(--hover)}
 .pal-item .icon{width:22px;text-align:center;color:var(--ink3);font-size:13px}
 .pal-item .state{font-size:11.5px;color:var(--accent-ink)}
-.pal-item .keys{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+.pal-item .keys{font-family:var(--font);font-size:11px;color:var(--muted)}
 .pal-empty{padding:28px 12px;text-align:center;font-size:13.5px;color:var(--muted)}
 
 /* find bar: the palette's input row (335–339) under the menu bar, and the matches it marks in the page */
@@ -168,7 +187,7 @@ button,textarea{font-family:inherit}
 .find-input{flex:1;min-width:0;max-width:420px;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:7px;outline:0;background:var(--surface);font:inherit;font-size:13.5px;color:var(--ink)}
 .find-input:focus{border-color:var(--accent-ink)}
 .find-input::placeholder{color:var(--muted)}
-.find-count{min-width:76px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.find-count{min-width:76px;font-family:var(--font);font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--ink3);white-space:nowrap}
 .find-tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .find-btn{min-width:28px;height:28px;padding:0 6px;border:0;border-radius:7px;background:transparent;color:var(--ink2);font-size:14px;cursor:pointer}
 .find-btn:hover:not(:disabled){background:var(--hover)}
@@ -189,11 +208,11 @@ button,textarea{font-family:inherit}
 .bubble button:hover:not(:disabled),.bubble button.on{background:var(--pill-hover)}
 .bubble button:disabled{opacity:.45;cursor:default}
 .bubble .bold{font-weight:700}
-.bubble .italic{font-style:italic;font-family:'IBM Plex Serif',serif;font-size:15px}
+.bubble .italic{font-style:italic;font-family:var(--font);font-size:15px}
 .bubble .underline{text-decoration:underline}
 .bubble .wide{width:auto;padding:0 8px;font-size:12.5px}
 .bubble .strong{font-weight:600}
-.bubble .quote{font-size:16px;font-family:'IBM Plex Serif',serif}
+.bubble .quote{font-size:16px;font-family:var(--font)}
 .bubble .comment{padding:0 10px}
 .bubble .sep{width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px}
 .swatch-hl{width:14px;height:14px;border-radius:3px;background:#f3dc6b}
@@ -234,12 +253,12 @@ button,textarea{font-family:inherit}
 .dock .tool:hover,.dock .table-btn:hover{background:var(--hover)}
 .dock .tool.on{background:var(--hover)}
 .dock .tool.bold{font-weight:700}
-.dock .tool.italic{font-style:italic;font-family:'IBM Plex Serif',serif;font-size:15px}
+.dock .tool.italic{font-style:italic;font-family:var(--font);font-size:15px}
 .dock .tool.underline{text-decoration:underline}
 .dock .tool.quiet{color:var(--ink2);font-size:15px}
 .dock .table-btn{height:32px;padding:0 10px;border-radius:8px;font-size:12.5px;display:flex;align-items:center;gap:6px}
 .dock .table-btn .glyph{color:var(--accent-ink)}
-.dock .hint{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);padding:0 8px 0 4px}
+.dock .hint{font-family:var(--font);font-size:11.5px;color:var(--muted);padding:0 8px 0 4px}
 
 /* print: only the paper, as a plain light page (the dark tokens above are screen-only); overlays add .no-print */
 @page{margin:1in}
