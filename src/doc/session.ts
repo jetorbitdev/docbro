@@ -181,11 +181,9 @@ export class DocSession {
       }
     }
 
+    // A comment whose mark is gone (resolved) keeps its entry, so undo can still bring it back whole; the file,
+    // the dirty state and the tools only ever see the comments whose mark is in the document.
     await this.io.write(target, await writeDocument(target, doc, meta));
-    // A comment whose mark is gone (resolved, undone) goes for good; one whose mark came back while the file was
-    // written stays.
-    const marked = new Set([...commentIds(node), ...commentIds(this.editor.state.doc)]);
-    this._meta = { ...this._meta, comments: this._meta.comments.filter((c) => marked.has(c.id)) };
     this._path = target;
     this._dropped = []; // the file written has none of them
     this.capture(node, meta);

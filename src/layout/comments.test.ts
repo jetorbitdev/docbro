@@ -1,5 +1,7 @@
 import type { Editor, JSONContent } from "@tiptap/core";
+import type { Slice } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
+import JSZip from "jszip";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { emptyMeta, type CommentData } from "../doc/meta";
 import { DocSession, type SessionIO } from "../doc/session";
@@ -196,7 +198,7 @@ test("a_resolved_word_comment_is_reported_as_a_part_docbro_cannot_keep", async (
   const { doc, meta, dropped } = await importDocx(bytes);
   expect(meta.comments.map((c) => c.text)).toEqual(["Still open"]);
   expect(liveComments(meta.comments, editor.schema.nodeFromJSON(doc)).map((c) => c.text)).toEqual(["Still open"]);
-  expect(dropped).toEqual(["comments"]);
+  expect(dropped).toEqual(["resolved_comments"]);
 });
 
 test("a_comment_range_can_cross_paragraphs_and_its_text_keeps_its_lines", async () => {
@@ -220,19 +222,80 @@ test("markdown_leaves_the_comment_marks_out", () => {
   expect(docToMarkdown(docWithCommentMark("c1")).trim()).toBe("Keyword cluster volume matters.\n\nNext paragraph.");
 });
 
-test("saving_drops_entries_whose_mark_is_gone_and_undo_back_to_saved_is_clean", async () => {
+test("undo_back_to_the_saved_document_is_clean_and_a_comment_resolved_before_a_save_comes_back_whole", async () => {
   set({ type: "doc", content: [p(t("Hello world"))] });
   await session.save("/d/a.docx");
   select(1, 6);
-  const id = addComment(editor, session, "Gilang")!;
+  addComment(editor, session, "Gilang");
   expect(session.dirty).toBe(true);
   editor.commands.undo(); // the mark is gone: the entry is no content any more
   expect(session.dirty).toBe(false);
+
   select(7, 12);
-  const kept = addComment(editor, session, "Gilang")!;
+  const id = addComment(editor, session, "Gilang")!;
+  session.setMeta({ comments: session.meta.comments.map((c) => (c.id === id ? { ...c, text: "Say more", editing: false } : c)) });
+  resolveComment(editor, session, id);
   await session.save();
-  expect(session.meta.comments.map((c) => c.id)).toEqual([kept]);
-  expect(id).not.toBe(kept);
+  editor.commands.undo(); // the resolve
+  expect(liveComments(session.meta.comments, editor.state.doc)).toEqual([expect.objectContaining({ id, text: "Say more" })]);
+  await session.save();
+  const back = await importDocx(io.files.get("/d/a.docx")!);
+  expect(back.meta.comments.map((c) => c.text)).toEqual(["Say more"]);
+});
+
+test("pasting_keeps_a_comment_only_when_its_text_was_cut_or_dragged_away", () => {
+  set({ type: "doc", content: [p(t("Keep "), t("this", "c1"), t(" and that."))] });
+  session.setMeta({ comments: [c1] });
+  const paste = (slice: Slice) => {
+    let out = slice;
+    editor.view.someProp("transformPasted", (f) => void (out = f(out, editor.view, false)));
+    return out;
+  };
+  const commented = () => editor.state.doc.slice(6, 10); // "this", with c1
+  const ids = (slice: Slice) => {
+    const found: string[] = [];
+    slice.content.descendants((node) => void node.marks.forEach((m) => m.type.name === "comment" && found.push(m.attrs.id)));
+    return found;
+  };
+  // a copy: the comment is still on the original, so the pasted text is a text of its own
+  expect(ids(paste(commented()))).toEqual([]);
+  // a move by dragging: the original goes once the copy lands
+  const slice = commented();
+  (editor.view as unknown as { dragging: unknown }).dragging = { slice, move: true };
+  expect(ids(paste(slice))).toEqual(["c1"]);
+  (editor.view as unknown as { dragging: unknown }).dragging = null;
+  // a cut: the comment's text is gone from the document, so it goes where the text goes
+  const cut = commented();
+  editor.commands.deleteRange({ from: 6, to: 10 });
+  expect(ids(paste(cut))).toEqual(["c1"]);
+});
+
+test("a_comment_never_posted_is_not_written_to_word", async () => {
+  const draft: CommentData = { id: "c2", author: "Gilang", date: c1.date, text: "", editing: true };
+  const doc: JSONContent = { type: "doc", content: [p(t("A", "c1"), t(" B", "c2"))] };
+  const zip = await JSZip.loadAsync(await exportDocx(doc, { ...emptyMeta(), comments: [c1, draft] }));
+  expect((await zip.file("word/comments.xml")!.async("string")).match(/<w:comment /g)).toHaveLength(1);
+  expect((await zip.file("word/document.xml")!.async("string")).match(/<w:commentRangeStart /g)).toHaveLength(1);
+  const alone = await JSZip.loadAsync(await exportDocx({ type: "doc", content: [p(t("B", "c2"))] }, { ...emptyMeta(), comments: [draft] }));
+  expect(alone.file("word/comments.xml")).toBeNull();
+});
+
+test("comments_docbro_cannot_show_are_named_for_what_they_are", async () => {
+  const bytes = await buildDocx({
+    document:
+      '<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>Done</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r>' +
+      '<w:r><w:t xml:space="preserve"> and </w:t></w:r><w:r><w:commentReference w:id="1"/></w:r></w:p>',
+    comments:
+      '<w:comment w:id="0" w:author="Rina"><w:p w14:paraId="0C000001"><w:r><w:t>Resolved</w:t></w:r></w:p></w:comment>' +
+      '<w:comment w:id="1" w:author="Rina"><w:p w14:paraId="0C000002"><w:r><w:t>On a point</w:t></w:r></w:p></w:comment>',
+    commentsExtended: '<w15:commentEx w15:paraId="0C000001" w15:done="1"/>',
+  });
+  io.files.set("/d/w.docx", bytes);
+  await session.open("/d/w.docx");
+  expect(session.dropped).toEqual(["resolved_comments", "comments_on_no_text"]);
+  await expect(session.save()).rejects.toThrow(
+    "Saving will remove parts DocBro can't keep: resolved comments, comments on no text. Save under a new name, or confirm.",
+  );
 });
 
 test("relative_times_read_like_the_mock", () => {

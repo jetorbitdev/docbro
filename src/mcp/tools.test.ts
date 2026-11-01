@@ -69,6 +69,8 @@ const paragraphs = (n: number) => Array.from({ length: n }, (_, i) => `Paragraph
  * The same document built directly. Every editor made in this process adds its Markdown tokenizers to the one
  * global `marked`, so parsing 5000 paragraphs gets slower with each test that ran before.
  */
+// A test on 5000 blocks takes a few seconds alone, and more beside the other test files.
+const HUGE_MS = 20_000;
 const hugeDoc = (n: number): JSONContent => ({
   type: "doc",
   content: paragraphs(n).map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })),
@@ -91,7 +93,7 @@ test("read_document_pages_long_documents", async () => {
   const r = await runTool(ctx, "read_document", {});
   expect(r.text.length).toBeLessThanOrEqual(MAX_READ_CHARS + 200);
   expect(r.text).toMatch(/Call read_document with from=\d+\.$/);
-});
+}, HUGE_MS);
 
 test("each_tool_call_is_one_undo_step_and_never_merges_with_typing", async () => {
   set("Hello");
@@ -384,7 +386,7 @@ test("reading_a_huge_document_page_by_page_sees_every_block_once", async () => {
   expect(seen).toEqual(Array.from({ length: 5000 }, (_, i) => `${i + 1}:${i}`));
   expect(sizes.length).toBeGreaterThan(5);
   expect(Math.max(...sizes)).toBeLessThanOrEqual(MAX_READ_CHARS + 200);
-});
+}, HUGE_MS);
 
 test("a_huge_find_replace_is_one_undo_step", async () => {
   set(hugeDoc(5000));
@@ -394,7 +396,7 @@ test("a_huge_find_replace_is_one_undo_step", async () => {
   expect(top()[4999].content![0].text).toMatch(/^Paragraph 4999 /);
   const info = JSON.parse(await ok("document_info"));
   expect(info).toMatchObject({ blocks: 5000, words: 15000 });
-});
+}, HUGE_MS);
 
 test("document_info_describes_the_document", async () => {
   set("# Title\n\nSome words here\n\n> ## Quoted\n\n- item\n\n## Sub");

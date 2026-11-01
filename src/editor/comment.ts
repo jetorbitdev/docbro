@@ -1,5 +1,5 @@
 import { Mark } from "@tiptap/core";
-import { Fragment, Slice, type MarkType, type Node as PMNode } from "@tiptap/pm/model";
+import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { CommentData } from "../doc/meta";
@@ -35,7 +35,7 @@ export const CommentMark = Mark.create({
   },
 
   addProseMirrorPlugins() {
-    return [commentPlugin(this.type)];
+    return [commentPlugin()];
   },
 });
 
@@ -111,17 +111,26 @@ function lit(doc: PMNode, id: string | null): DecorationSet {
   return DecorationSet.create(doc, decorations);
 }
 
-// The comments on copied text stay with the original: a pasted copy is text of its own.
-function withoutComments(fragment: Fragment, type: MarkType): Fragment {
+// Takes off the comments `taken` names.
+function withoutComments(fragment: Fragment, taken: (id: unknown) => boolean): Fragment {
   const nodes: PMNode[] = [];
   fragment.forEach((node) => {
-    const marks = type.removeFromSet(node.marks);
-    nodes.push(node.isLeaf ? node.mark(marks) : node.copy(withoutComments(node.content, type)).mark(marks));
+    const marks = node.marks.filter((m) => m.type.name !== "comment" || !taken(m.attrs.id));
+    nodes.push(node.isLeaf ? node.mark(marks) : node.copy(withoutComments(node.content, taken)).mark(marks));
   });
   return Fragment.from(nodes);
 }
 
-function commentPlugin(type: MarkType): Plugin {
+// A pasted copy is text of its own: a comment still on its original stays there, so an id is on one stretch of text.
+// Text that was cut, or dragged to move it, takes its comments along.
+function pastedComments(slice: Slice, view: EditorView): Slice {
+  if ((view.dragging as { move?: boolean } | null)?.move) return slice;
+  const live = commentIds(view.state.doc);
+  if (!live.size) return slice;
+  return new Slice(withoutComments(slice.content, (id) => typeof id === "string" && live.has(id)), slice.openStart, slice.openEnd);
+}
+
+function commentPlugin(): Plugin {
   return new Plugin<HoverState>({
     key: commentHoverKey,
     state: {
@@ -144,7 +153,7 @@ function commentPlugin(type: MarkType): Plugin {
         }, FLASH_MS);
         return false; // the click still puts the caret there
       },
-      transformPasted: (slice) => new Slice(withoutComments(slice.content, type), slice.openStart, slice.openEnd),
+      transformPasted: pastedComments,
     },
   });
 }

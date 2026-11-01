@@ -120,23 +120,27 @@ function markAlong(nodes: JSONContent[], on: string, id: string): void {
 
 /**
  * The comments the document keeps, once the walk is done: those with marked text, and a reply with no range of its
- * own over the text of the comment it answers (Word draws a thread as one). True in `lost` when the text has a
- * comment DocBro cannot show: resolved, or on no text. A comment the text never refers to Word does not show either.
+ * own over the text of the comment it answers (Word draws a thread as one). `resolved` and `onNoText` say the text
+ * has comments DocBro cannot show: resolved ones, and ones on no text (a reference alone, or an empty range). A
+ * comment the text never refers to Word does not show either.
  */
-export function settleComments(content: JSONContent[], walk: CommentWalk): { comments: CommentData[]; lost: boolean } {
-  const comments: CommentData[] = [];
-  let lost = false;
+export function settleComments(content: JSONContent[], walk: CommentWalk): { comments: CommentData[]; resolved: boolean; onNoText: boolean } {
+  const out = { comments: [] as CommentData[], resolved: false, onNoText: false };
   for (const c of walk.comments) {
     if (!walk.anchored.has(c.wordId)) continue;
-    const parent = c.parent !== null ? walk.byWordId.get(c.parent) : undefined;
-    if (!c.resolved && !walk.marked.has(c.id) && parent && walk.marked.has(parent.id)) markAlong(content, parent.id, c.id);
-    else if (c.resolved || !walk.marked.has(c.id)) {
-      lost = true;
+    if (c.resolved) {
+      out.resolved = true;
       continue;
     }
-    comments.push({ id: c.id, author: c.author, date: c.date, text: c.text });
+    const parent = c.parent !== null ? walk.byWordId.get(c.parent) : undefined;
+    if (!walk.marked.has(c.id) && parent && walk.marked.has(parent.id)) markAlong(content, parent.id, c.id);
+    else if (!walk.marked.has(c.id)) {
+      out.onNoText = true;
+      continue;
+    }
+    out.comments.push({ id: c.id, author: c.author, date: c.date, text: c.text });
   }
-  return { comments, lost };
+  return out;
 }
 
 // ------------------------------------------------------------------ writing
@@ -152,10 +156,13 @@ export interface CommentPlan {
 
 const add = (map: Map<JSONContent, number[]>, node: JSONContent, n: number) => map.set(node, [...(map.get(node) ?? []), n]);
 
-/** The comments to write: those with an entry and a mark, numbered in the order they start. */
+/**
+ * The comments to write: those with an entry and a mark, numbered in the order they start. One still being written,
+ * with nothing in it yet, is not a comment yet.
+ */
 export function planComments(doc: JSONContent, entries: CommentData[]): CommentPlan {
   const byId = new Map<string, CommentData>();
-  for (const c of entries) if (!byId.has(c.id)) byId.set(c.id, c);
+  for (const c of entries) if (!byId.has(c.id) && !(c.editing && !c.text.trim())) byId.set(c.id, c);
   const first = new Map<string, JSONContent>();
   const last = new Map<string, JSONContent>();
   const walk = (node: JSONContent) => {

@@ -9,7 +9,11 @@ import { commentEdge, commentWalk, openCommentMarks, settleComments, wordComment
 import { MEDIA_TYPES } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
-export type DroppedPart = "headers" | "footers" | "comments" | "footnotes" | "tracked_changes" | "page_setup" | "other_content";
+// "comments" is every comment, from a comments part that could not be read; the other two are the comments DocBro
+// does not show (formats/docx/comments.ts).
+export type DroppedPart =
+  | "headers" | "footers" | "comments" | "resolved_comments" | "comments_on_no_text" | "footnotes" | "tracked_changes" | "page_setup"
+  | "other_content";
 
 export interface DocxImport {
   doc: JSONContent;
@@ -19,7 +23,9 @@ export interface DocxImport {
 
 type Mark = NonNullable<JSONContent["marks"]>[number];
 
-const DROPPED_ORDER: DroppedPart[] = ["headers", "footers", "comments", "footnotes", "tracked_changes", "page_setup", "other_content"];
+const DROPPED_ORDER: DroppedPart[] = [
+  "headers", "footers", "comments", "resolved_comments", "comments_on_no_text", "footnotes", "tracked_changes", "page_setup", "other_content",
+];
 const PICTURE = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 const STRICT = "http://purl.oclc.org/ooxml/wordprocessingml/main";
 const SAFE_LINK = /^(https?|mailto|tel|ftp):/i;
@@ -117,7 +123,8 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
   ctx.headings = [1, 2, 3].map((level) => spacingOf(ctx, null, headingStyle(ctx, level)));
   const content = trimCovers(blocks(body, ctx));
   const kept = settleComments(content, ctx.comments!);
-  if (kept.lost) ctx.dropped.add("comments");
+  if (kept.resolved) ctx.dropped.add("resolved_comments");
+  if (kept.onNoText) ctx.dropped.add("comments_on_no_text");
   const doc = finish(content);
   const meta = await readHeaderFooter(zip, body, relations, ctx);
   meta.comments = kept.comments;
