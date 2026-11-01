@@ -30,8 +30,10 @@ import {
   UnderlineType,
   VerticalPositionRelativeFrom,
   WidthType,
+  convertToXmlComponent,
   type ILevelsOptions,
   type IParagraphOptions,
+  type XmlElement,
 } from "docx";
 import { PAPER, TWIPS_PER_PX, type DocMeta, type KeptPart } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
@@ -375,19 +377,49 @@ function inline(nodes: JSONContent[] | undefined, ctx: Context): Inline[] {
   return (nodes ?? []).flatMap((node): Inline[] => {
     if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
     if (node.type === "image") return [image(node, ctx)];
-    if (node.type === "field") return [field(node)];
+    if (node.type === "field") return field(node);
     if (node.type === "text" && node.text) return [text(node)];
     return [];
   });
 }
 
 // A page number is written as Word writes one; any other field as the instruction and the value it showed.
-function field(node: JSONContent): TextRun | SimpleField {
+function field(node: JSONContent): Inline[] {
   const instr = String(node.attrs?.instr ?? "");
-  const number = { PAGE: PageNumber.CURRENT, NUMPAGES: PageNumber.TOTAL_PAGES, SECTIONPAGES: PageNumber.TOTAL_PAGES_IN_SECTION }[fieldName(instr)];
+  const value = String(node.attrs?.text ?? "");
   const bold = node.marks?.some((m) => m.type === "bold") || undefined;
   const italics = node.marks?.some((m) => m.type === "italic") || undefined;
-  return number ? new TextRun({ children: [number], bold, italics }) : new SimpleField(instr, String(node.attrs?.text ?? ""));
+  const number = { PAGE: PageNumber.CURRENT, NUMPAGES: PageNumber.TOTAL_PAGES, SECTIONPAGES: PageNumber.TOTAL_PAGES_IN_SECTION }[fieldName(instr)];
+  if (number) return [new TextRun({ children: [number], bold, italics })];
+  return nestedField(instr, value, { bold, italics }) ?? [new SimpleField(instr, value)];
+}
+
+const xmlElement = (name: string, attributes?: Record<string, string>, elements?: XmlElement[]): XmlElement =>
+  ({ type: "element", name, attributes, elements });
+
+// A field with others in its instruction, which import.ts reads into braces (`IF { PAGE } = 1 …`), is written
+// back as Word's own runs: a begin, the instruction with each brace a field of its own, a separate, the value, an end.
+// `docx` has no such field, so the runs are built as XML. Null when there are no braces or they do not pair up.
+function nestedField(instr: string, value: string, look: { bold?: boolean; italics?: boolean }): Inline[] | null {
+  const parts = instr.split(/([{}])/).filter(Boolean);
+  let depth = 0;
+  for (const part of parts) {
+    depth += part === "{" ? 1 : part === "}" ? -1 : 0;
+    if (depth < 0) return null;
+  }
+  if (depth !== 0 || !parts.includes("{")) return null;
+
+  const run = (...elements: XmlElement[]) => convertToXmlComponent(xmlElement("w:r", undefined, elements)) as unknown as Inline;
+  const char = (type: string) => run(xmlElement("w:fldChar", { "w:fldCharType": type }));
+  const code = (text: string) => run(xmlElement("w:instrText", { "xml:space": "preserve" }, [{ type: "text", text }]));
+  const rPr = [look.bold && xmlElement("w:b"), look.italics && xmlElement("w:i")].filter((el): el is XmlElement => !!el);
+  return [
+    char("begin"),
+    ...parts.map((part) => (part === "{" ? char("begin") : part === "}" ? char("end") : code(part))),
+    char("separate"),
+    run(...(rPr.length ? [xmlElement("w:rPr", undefined, rPr)] : []), xmlElement("w:t", { "xml:space": "preserve" }, [{ type: "text", text: value }])),
+    char("end"),
+  ];
 }
 
 // Only a "#rrggbb" color is written; `shd` and `color` take a bare hex value.

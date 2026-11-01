@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { paginate, type Unit } from "./pages";
+import { paginate, sheetAt, type Unit } from "./pages";
 
 // A 1000px page with 50px above and below the text, and 20px between pages: the second page's text starts at 1070.
 const PAGE = { pageHeight: 1000, gap: 20, padTop: 50, padBottom: 50 };
@@ -94,4 +94,9 @@ test("the_gap_leaves_out_the_margins_the_blocks_bring_with_them", () => {
 
 test("no_blocks_is_one_page", () => {
   expect(paginate([], PAGE)).toEqual({ gaps: [], pages: 1 });
+});
+
+test("the_sheet_at_a_point_counts_a_gap_with_the_sheet_above_and_stays_within_the_sheets", () => {
+  const layout = { ...PAGE, pages: 3 };
+  expect([-5, 0, 999, 1010, 1020, 2100, 9000].map((y) => sheetAt(y, layout))).toEqual([0, 0, 0, 0, 1, 2, 2]);
 });

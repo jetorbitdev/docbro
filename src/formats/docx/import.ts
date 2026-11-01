@@ -56,7 +56,8 @@ interface Context {
   // Reading a header or footer for its view: a picture keeps the size the file drew it at (there is no text width to
   // hold it to), and a field is a field, not its last value.
   part?: boolean;
-  field?: { depth: number; instr: string; phase: "instr" | "result"; text: string; marks: Mark[] }; // the field being read
+  // The field being read: where each field open inside it is, outermost first, and what has been read of it.
+  field?: { phases: ("instr" | "result")[]; instr: string; text: string; marks: Mark[] };
 }
 
 // A block of the body before consecutive list and quote paragraphs are grouped.
@@ -718,24 +719,34 @@ function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: J
 }
 
 // A field told by its characters, across runs: begin, the instruction, separate, the last value, end. Only the
-// outermost becomes a field; one nested in it is part of its instruction and value. True when `el` was taken.
+// outermost becomes a field. One nested in its instruction is kept there in braces, as Word shows field codes
+// (`IF { PAGE } = 1 …`, written back by export.ts); one nested in its value is part of the value. True when `el` was taken.
 function fieldPart(el: Element, ctx: Context, marks: Mark[], out: JSONContent[]): boolean {
   const field = ctx.field;
+  const inCode = () => !!field && field.phases.every((phase) => phase === "instr");
   if (is(el, "w:fldChar")) {
     const type = attr(el, "w:fldCharType");
     if (type === "begin") {
-      if (field) field.depth++;
-      else ctx.field = { depth: 1, instr: "", phase: "instr", text: "", marks: [] };
-    } else if (type === "separate" && field?.depth === 1) field.phase = "result";
-    else if (type === "end" && field && --field.depth === 0) {
-      out.push({ type: "field", attrs: { instr: field.instr.trim(), text: field.text }, ...(field.marks.length && { marks: field.marks }) });
-      ctx.field = undefined;
+      if (!field) ctx.field = { phases: ["instr"], instr: "", text: "", marks: [] };
+      else {
+        if (inCode()) field.instr += "{";
+        field.phases.push("instr");
+      }
+    } else if (type === "separate" && field) field.phases[field.phases.length - 1] = "result";
+    else if (type === "end" && field) {
+      field.phases.pop();
+      if (field.phases.length) {
+        if (inCode()) field.instr += "}";
+      } else {
+        out.push({ type: "field", attrs: { instr: field.instr.trim(), text: field.text }, ...(field.marks.length && { marks: field.marks }) });
+        ctx.field = undefined;
+      }
     }
     return true;
   }
   if (!field) return false;
-  if (is(el, "w:instrText") && field.depth === 1 && field.phase === "instr") field.instr += el.textContent ?? "";
-  if (is(el, "w:t") && field.phase === "result") {
+  if (is(el, "w:instrText") && inCode()) field.instr += el.textContent ?? "";
+  if (is(el, "w:t") && field.phases[0] === "result") {
     if (!field.text) field.marks = marks;
     field.text += runText(el);
   }

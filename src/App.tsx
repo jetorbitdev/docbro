@@ -19,7 +19,7 @@ import { Dock } from "./layout/Dock";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
-import type { PageLayout } from "./layout/pages";
+import { sheetAt, type PageLayout } from "./layout/pages";
 import { McpSettings } from "./layout/McpSettings";
 import { Paper } from "./layout/Paper";
 import { ColorPopover, LinkPopover } from "./layout/Popovers";
@@ -119,7 +119,16 @@ export default function App() {
       return null;
     });
   }, [session]);
-  const openZone = useCallback((kind: Zone) => setEditingPart({ kind, sheet: 0 }), []);
+  // Insert ▸ Header or Footer: on the sheet in the middle of the window, where the person is looking.
+  const openZone = useCallback(
+    (kind: Zone) => {
+      const view = scroller?.getBoundingClientRect();
+      const top = paper?.getBoundingClientRect().top;
+      const sheet = view && top !== undefined && pageLayout ? sheetAt(view.top + view.height / 2 - top, pageLayout) : 0;
+      setEditingPart({ kind, sheet });
+    },
+    [scroller, paper, pageLayout],
+  );
   // another document in the window has a header and footer of its own
   useEffect(() => setEditingPart(null), [session, doc.path]);
   // Edit ▸ Find… and Find and replace…: opens the bar, or takes the focus back to one already open

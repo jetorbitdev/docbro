@@ -25,6 +25,11 @@ export interface Unit {
   forcedAfter?: boolean;
 }
 
+/** The sheet at `y` px from the top of the paper; one in a gap is the sheet above it. */
+export function sheetAt(y: number, layout: PageLayout): number {
+  return Math.min(layout.pages - 1, Math.max(0, Math.floor(y / (layout.pageHeight + layout.gap))));
+}
+
 export interface Layout {
   /** Spacers to put in front of the block at `index`, each as tall as the end of one page and the start of the next. */
   gaps: { index: number; height: number }[];

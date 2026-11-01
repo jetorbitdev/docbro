@@ -278,11 +278,30 @@ test("a_field_in_a_header_or_footer_is_read_as_a_field_with_its_instruction_and_
   expect(meta.footerPart!.editLoses).toEqual([]);
 });
 
-test("a_field_inside_a_field_stays_part_of_the_outer_one", async () => {
-  const nested = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> IF </w:instrText></w:r>' + COMPLEX_PAGE +
-    '<w:r><w:instrText> = 1 "satu" "lain" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>lain</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
-  const { meta } = await importDocx(await pack(part("hdr", `<w:p>${nested}</w:p><w:p/>`)));
-  expect(fieldsOf(meta.headerPart!.view)).toEqual([{ instr: 'IF  = 1 "satu" "lain"', text: "lain" }]);
+const NESTED = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> IF </w:instrText></w:r>' + COMPLEX_PAGE +
+  '<w:r><w:instrText xml:space="preserve"> = 1 "satu" "lain" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>lain</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
+
+test("a_field_inside_a_field_is_kept_in_braces_in_the_outer_ones_instruction", async () => {
+  const { meta } = await importDocx(await pack(part("hdr", `<w:p>${NESTED}</w:p><w:p/>`)));
+  expect(fieldsOf(meta.headerPart!.view)).toEqual([{ instr: 'IF { PAGE } = 1 "satu" "lain"', text: "lain" }]);
+});
+
+test("an_edited_part_writes_a_field_inside_a_field_back_as_word_nests_them", async () => {
+  const meta = { ...emptyMeta(), headerPart: edited({ type: "paragraph", content: [{ type: "field", attrs: { instr: 'IF { PAGE } = 1 "satu" "lain"', text: "lain" }, marks: [{ type: "bold" }] }] }) };
+  const bytes = await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta);
+  const xml = (await read(bytes, "word/header1.xml"))!;
+  const chars = [...xml.matchAll(/w:fldCharType="(\w+)"|<w:instrText[^>]*>([^<]*)</g)].map((m) => m[1] ?? `"${m[2]}"`);
+  expect(chars).toEqual(["begin", '"IF "', "begin", '" PAGE "', "end", '" = 1 &quot;satu&quot; &quot;lain&quot;"', "separate", "end"]);
+  expect(xml).toMatch(/<w:rPr><w:b\/><\/w:rPr><w:t xml:space="preserve">lain<\/w:t>/);
+
+  const again = await importDocx(bytes);
+  expect(fieldsOf(again.meta.headerPart!.view)).toEqual([{ instr: 'IF { PAGE } = 1 "satu" "lain"', text: "lain" }]);
+});
+
+test("braces_that_do_not_pair_up_are_written_as_a_plain_field", async () => {
+  const meta = { ...emptyMeta(), headerPart: edited({ type: "paragraph", content: [{ type: "field", attrs: { instr: 'QUOTE "a }"', text: "a }" } }] }) };
+  const xml = (await read(await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta), "word/header1.xml"))!;
+  expect(xml).toContain('<w:fldSimple w:instr="QUOTE &quot;a }&quot;"');
 });
 
 test("fields_in_the_body_are_still_their_text", async () => {
