@@ -13,7 +13,7 @@ interface Props {
   /** The command palette is open. */
   suspended: boolean;
   run(commandId: string): void;
-  /** Absent until comments exist: the button is drawn but disabled. */
+  /** Absent where a comment's card has no room, or in a header or footer: the button is drawn but disabled. */
   onComment?(): void;
 }
 

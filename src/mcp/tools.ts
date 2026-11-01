@@ -1,14 +1,16 @@
 import type { Editor } from "@tiptap/core";
-import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, type Mark, type MarkType, type Node as PMNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { partText } from "../doc/meta";
 import type { DocSession } from "../doc/session";
 import { blockCount, blockRange } from "../editor/blockAddress";
+import { liveComments } from "../editor/comment";
 import { findAll, replaceAll } from "../editor/find";
+import { commit } from "../editor/history";
 import { formatOf } from "../formats";
 import { docToMarkdown, markdownToDoc } from "../formats/markdown";
 import { normalizeUrl } from "../layout/blocks";
+import { commentOn } from "../layout/comments";
 import { docStats, outlineOf } from "../layout/outline";
 
 /**
@@ -21,7 +23,7 @@ import { docStats, outlineOf } from "../layout/outline";
  */
 
 export const TOOL_NAMES = ["document_info", "read_document", "insert_content", "replace_blocks", "delete_blocks",
-  "find_replace", "format_text", "undo", "redo", "open_document", "save_document"] as const;
+  "find_replace", "format_text", "list_comments", "add_comment", "undo", "redo", "open_document", "save_document"] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export interface ToolContext {
@@ -40,7 +42,7 @@ export const MAX_READ_CHARS = 60_000;
 /** Plain, short descriptions for the tool list; Task 11 restates them, with the argument schemas, in Rust. */
 export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   document_info:
-    "The open document's name, path, format, whether it has unsaved changes, block count, word count and outline, as JSON.",
+    "The open document's name, path, format, whether it has unsaved changes, block count, word count, comment count and outline, as JSON.",
   read_document:
     "Reads blocks from..to as Markdown, each marked [n] with its block number. Blocks are the document's top-level " +
     "paragraphs, headings, lists, quotes, tables, images and dividers. A long document comes in pages; the end says where to go on.",
@@ -56,6 +58,10 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Formats blocks from..to (to defaults to from). bold, italic, underline, strike: true or false. color, highlight: " +
     "\"#rrggbb\", or null to remove. link: an http, https or mailto URL, or null to remove. With text, these go on that text " +
     "only. style: body, heading1-3 or quote; align: left, center, right, justify or null; list: bullet, numbered or none.",
+  list_comments: "The document's comments as JSON, in the order they come: id, author, date, text, and quote, the text they are on.",
+  add_comment:
+    "Adds a comment by \"AI\" on block n: on the first occurrence of text in it (case sensitive) when text is given, " +
+    "else on the whole block.",
   undo: "Undoes the last change, the user's or an AI's. Each edit tool call is one step.",
   redo: "Redoes the last undone change.",
   open_document: "Opens a .docx or .md file by absolute path. Refused while there are unsaved changes, unless discard is true.",
@@ -79,6 +85,8 @@ const ARGS: Record<ToolName, readonly string[]> = {
   delete_blocks: ["from", "to"],
   find_replace: ["find", "replace", "case_sensitive", "from", "to"],
   format_text: ["from", "to", "text", ...FORMATS],
+  list_comments: [],
+  add_comment: ["block", "text", "comment"],
   undo: [],
   redo: [],
   open_document: ["path", "discard"],
@@ -154,13 +162,6 @@ function parseBlocks(editor: Editor, markdown: string): Fragment {
   return doc.content;
 }
 
-/** Applies `tr` as one undo step of its own, closed off from the change before it and from the one after. */
-export function commit(editor: Editor, tr: Transaction): void {
-  editor.view.dispatch(closeHistory(tr).setMeta("addToHistory", true));
-  // Without this, typing that starts next to the new text within the history's group delay would join the AI's step.
-  editor.view.dispatch(closeHistory(editor.state.tr));
-}
-
 // ------------------------------------------------------------------ reading
 
 function documentInfo({ editor, session }: ToolContext): string {
@@ -177,6 +178,7 @@ function documentInfo({ editor, session }: ToolContext): string {
     header: session.meta.header ?? partText(session.meta.headerPart),
     footer: session.meta.footer ?? partText(session.meta.footerPart),
     page_numbers: session.meta.pageNumbers,
+    comments: liveComments(session.meta.comments, doc).length,
     dropped: session.dropped,
     outline: outlineOf(doc).map(({ pos, level, text }) => ({ block: doc.resolve(pos).index(0) + 1, level, text })),
   });
@@ -439,6 +441,31 @@ function formatText({ editor }: ToolContext, a: Args): string {
   return `Formatted blocks ${first}–${last}.`;
 }
 
+// ------------------------------------------------------------------ comments
+
+function listComments({ editor, session }: ToolContext): string {
+  const { doc } = editor.state;
+  return JSON.stringify(
+    liveComments(session.meta.comments, doc).map(({ id, author, date, text, from, to }) => ({
+      id, author, date, text, quote: doc.textBetween(from, to, "\n"),
+    })),
+  );
+}
+
+function addComment({ editor, session }: ToolContext, a: Args): string {
+  const block = reqBlock(a, "block");
+  const comment = reqString(a, "comment");
+  if (!comment.trim()) fail("comment must not be empty.");
+  const text = optString(a, "text");
+  if (text === "") fail("text must not be empty.");
+  const { doc } = editor.state;
+  const range = blockRange(doc, block, block);
+  const on = text ? findAll(doc, text, { caseSensitive: true, ...range })[0] : range;
+  if (!on) fail(`"${text}" was not found in block ${block}.`);
+  if (!doc.textBetween(on.from, on.to, " ").trim()) fail(`Block ${block} has no text to comment on.`);
+  return `Added comment ${commentOn(editor, session, on, { author: "AI", text: comment })}.`;
+}
+
 // ------------------------------------------------------------------ history and files
 
 async function openDocument({ editor, session }: ToolContext, a: Args): Promise<string> {
@@ -467,6 +494,8 @@ const TOOLS: Record<ToolName, Tool> = {
   delete_blocks: deleteBlocks,
   find_replace: findReplace,
   format_text: formatText,
+  list_comments: listComments,
+  add_comment: addComment,
   undo: ({ editor }) => (editor.commands.undo() ? "Undid the last change." : "Nothing to undo."),
   redo: ({ editor }) => (editor.commands.redo() ? "Redid the last undone change." : "Nothing to redo."),
   open_document: openDocument,

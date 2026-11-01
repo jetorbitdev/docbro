@@ -34,7 +34,9 @@ test("reads_word_style_names_lists_and_highlight", async () => {
 test("reports_parts_it_cannot_keep", async () => {
   const bytes = await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only", comments: true });
   const { doc, dropped } = await importDocx(bytes);
-  expect(dropped).toEqual(expect.arrayContaining(["headers", "comments", "tracked_changes", "other_content"]));
+  expect(dropped).toEqual(expect.arrayContaining(["headers", "tracked_changes", "other_content"]));
+  // a comment anchored nowhere in the text is not shown by Word either: nothing is lost
+  expect(dropped).not.toContain("comments");
   expect(plainText(doc)).toContain("inserted");
   expect(plainText(doc)).not.toContain("deleted");
 });

@@ -3,6 +3,8 @@ import JSZip from "jszip";
 import {
   AlignmentType,
   BorderStyle,
+  CommentRangeEnd,
+  CommentRangeStart,
   Document,
   ExternalHyperlink,
   Footer,
@@ -40,10 +42,11 @@ import {
 import { PAPER, TWIPS_PER_PX, type DocLook, type DocMeta, type KeptPart, type Spacing } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
 import { fontName } from "../../editor/fonts";
+import { planComments, withCommentRanges, type CommentPlan } from "./comments";
 import { MEDIA_TYPES } from "./media";
 
 type Block = Paragraph | Table;
-type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak | SimpleField;
+type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak | SimpleField | CommentRangeStart | CommentRangeEnd;
 
 const MARGIN = 1440; // 1in
 const MIN_COLUMN = 40; // px: the least a column nobody sized is given
@@ -67,8 +70,10 @@ interface Context {
   starts: Set<number>;
   imageWidth: number; // px: the text width of the page, the widest a picture is written
   page: { width: number; height: number }; // px: what a cover is stretched to
+  comments?: CommentPlan; // where the body's comment ranges start and end
 }
 
+// The comments are written as Word's, on the text that has their mark (formats/docx/comments.ts).
 // `meta.header` and `meta.footer` are the one-line zones DocBro's paper shows; page
 // numbers become a Page/NumPages field pair at the footer's right edge. A header or footer
 // part the file came with is written back as it was, after the package is made.
@@ -78,6 +83,7 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
   const margin = look?.margins ?? { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN, header: 720, footer: 720 };
   const ctx: Context = { nextInstance: 0, starts: new Set([1]), imageWidth: (paper.width - margin.left - margin.right) / TWIPS_PER_PX,
     page: { width: paper.width / TWIPS_PER_PX, height: paper.height / TWIPS_PER_PX },
+    comments: planComments(doc, meta?.comments ?? []),
   };
   const children: Block[] = blocks(doc.content, ctx);
   if (children.length === 0) children.push(new Paragraph({}));
@@ -96,6 +102,7 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
 
   const file = new Document({
     creator: "DocBro",
+    ...(ctx.comments!.comments.length && { comments: { children: ctx.comments!.comments } }),
     styles: {
       // A document from a .docx is written with the file's own type and spacing (doc/meta.ts `DocLook`), DocBro's otherwise.
       default: look
@@ -408,13 +415,15 @@ function table(node: JSONContent, ctx: Context): Block[] {
 }
 
 function inline(nodes: JSONContent[] | undefined, ctx: Context): Inline[] {
-  return (nodes ?? []).flatMap((node): Inline[] => {
-    if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
-    if (node.type === "image") return [image(node, ctx)];
-    if (node.type === "field") return field(node);
-    if (node.type === "text" && node.text) return [text(node)];
-    return [];
-  });
+  return (nodes ?? []).flatMap((node) => withCommentRanges(node, inlineNode(node, ctx), ctx.comments));
+}
+
+function inlineNode(node: JSONContent, ctx: Context): Inline[] {
+  if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
+  if (node.type === "image") return [image(node, ctx)];
+  if (node.type === "field") return field(node);
+  if (node.type === "text" && node.text) return [text(node)];
+  return [];
 }
 
 // A page number is written as Word writes one; any other field as the instruction and the value it showed.

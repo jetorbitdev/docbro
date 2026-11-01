@@ -4,6 +4,8 @@
 
 export const NS = {
   w: "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+  w14: "http://schemas.microsoft.com/office/word/2010/wordml",
+  w15: "http://schemas.microsoft.com/office/word/2012/wordml",
   r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
   a: "http://schemas.openxmlformats.org/drawingml/2006/main",
   wp: "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",

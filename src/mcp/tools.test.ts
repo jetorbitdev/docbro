@@ -409,6 +409,7 @@ test("document_info_describes_the_document", async () => {
     header: null,
     footer: null,
     page_numbers: false,
+    comments: 0,
     dropped: [],
     outline: [
       { block: 1, level: 1, text: "Title" },

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { toggleOutline, viewportLayout, type UiState } from "./viewport";
+import { roomForComments, toggleOutline, viewportLayout, type UiState } from "./viewport";
 
 const BASE_UI: UiState = {
   focus: false,
@@ -46,4 +46,13 @@ test("forcing_the_outline_shows_it_down_to_760px", () => {
 test("toggling_the_outline_hides_a_shown_one_and_forces_a_hidden_one", () => {
   expect(toggleOutline(true)).toEqual({ hideOutline: true, forceOutline: false });
   expect(toggleOutline(false)).toEqual({ hideOutline: false, forceOutline: true });
+});
+
+test("a_new_comment_brings_the_rail_in_and_closes_what_leaves_it_no_room", () => {
+  expect(roomForComments(1600, { ...BASE_UI, assistantOpen: true })).toEqual({});
+  expect(roomForComments(1300, { ...BASE_UI, hideComments: true })).toEqual({ hideComments: false });
+  // with the Assistant open the rail needs 1560px
+  expect(roomForComments(1400, { ...BASE_UI, assistantOpen: true, focus: true })).toEqual({ focus: false, assistantOpen: false });
+  // narrower than 1200px there is no room for it at all
+  expect(roomForComments(1100, BASE_UI)).toBeNull();
 });

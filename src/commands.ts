@@ -1,7 +1,7 @@
 import type { ChainedCommands, Editor } from "@tiptap/core";
 import type { DocSession } from "./doc/session";
 import { applyBlock, type BlockKey } from "./layout/blocks";
-import { toggleOutline, viewportLayout, type UiState } from "./layout/viewport";
+import { roomForComments, toggleOutline, viewportLayout, type UiState } from "./layout/viewport";
 import { currentTheme, toggleTheme } from "./theme";
 
 export type Group = "File" | "Edit" | "View" | "Insert" | "Format";
@@ -96,7 +96,9 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("link", "Insert", "↗", "Link…", "⇧⌘K", actions.insertLink),
     cmd("divider", "Insert", "—", "Divider", "", block("hr")),
     cmd("page_break", "Insert", "⤓", "Page break", "", block("pagebreak")),
-    cmd("comment", "Insert", "✎", "Comment on selection", "⌥⌘M", actions.addComment),
+    // a comment's card needs the rail beside the page; a header or footer has no comments
+    cmd("comment", "Insert", "✎", "Comment on selection", "⌥⌘M",
+      !zoneEditing && roomForComments(window.innerWidth, ui) ? actions.addComment : undefined),
     cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null || !!meta.headerPart),
     cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null || !!meta.footerPart),
     // In a header or footer being edited, a page number at the caret; otherwise the text footer's toggle (a kept

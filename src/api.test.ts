@@ -25,6 +25,12 @@ describe("api", () => {
     expect(Array.from(bytes)).toEqual([9, 8]);
   });
 
+  it("asks Rust for the user's name", async () => {
+    invoke.mockResolvedValue("gilang");
+    expect(await api.userName()).toBe("gilang");
+    expect(invoke).toHaveBeenCalledWith("user_name");
+  });
+
   it("passes the window facts and the open request by the names Rust expects", async () => {
     invoke.mockResolvedValue(undefined);
     await api.setDocMeta("/a.docx", true, false);

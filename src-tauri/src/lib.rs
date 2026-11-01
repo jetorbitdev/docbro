@@ -132,6 +132,22 @@ fn file_exists(path: String) -> bool {
     Path::new(&path).is_file()
 }
 
+/// Who writes this window's comments: the user's login name.
+#[tauri::command]
+fn user_name() -> String {
+    os_user_name(std::env::var("USER").ok(), std::env::var("USERNAME").ok())
+}
+
+/// `USER` (macOS, Linux), else `USERNAME` (Windows), else "Author".
+fn os_user_name(user: Option<String>, username: Option<String>) -> String {
+    [user, username]
+        .into_iter()
+        .flatten()
+        .map(|name| name.trim().to_string())
+        .find(|name| !name.is_empty())
+        .unwrap_or_else(|| "Author".into())
+}
+
 // ----------------------------------------------------------------- windows
 
 /// The editor reports what its document is, so the shell can pick a window for a file,
@@ -489,6 +505,7 @@ pub fn run() {
             read_file,
             write_file,
             file_exists,
+            user_name,
             set_doc_meta,
             editor_ready,
             take_pending_open,
@@ -593,6 +610,14 @@ mod tests {
             .lock_recovering()
             .insert("doc-2".into(), WindowDoc { dirty: true, ..blank() });
         assert!(!state.untouched("doc-2"));
+    }
+
+    #[test]
+    fn a_comment_is_by_the_os_user_or_by_author() {
+        assert_eq!(os_user_name(Some("rina".into()), None), "rina");
+        assert_eq!(os_user_name(None, Some("Budi".into())), "Budi");
+        assert_eq!(os_user_name(Some("  ".into()), Some(" Budi ".into())), "Budi");
+        assert_eq!(os_user_name(None, None), "Author");
     }
 
     #[test]

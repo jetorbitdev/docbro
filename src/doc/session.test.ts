@@ -44,6 +44,8 @@ function latch() {
 }
 
 const BODY = "<w:p><w:r><w:t>Hello</w:t></w:r></w:p>";
+// Text with comment c1 on it: a comment is part of the document only while its mark is.
+const COMMENTED = { type: "text", text: "Hello", marks: [{ type: "comment", attrs: { id: "c1" } }] };
 const text = (editor: Editor) => plainText(editor.getJSON());
 
 let editor: Editor;
@@ -154,9 +156,10 @@ test("saving_under_a_new_name_keeps_the_original_and_needs_no_confirmation", asy
 test("the_lossy_message_lists_every_dropped_part_in_plain_words", async () => {
   io.files.set("/d/a.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only", comments: true }));
   await s.open("/d/a.docx");
-  expect(s.dropped).toEqual(["headers", "comments", "tracked_changes", "other_content"]);
+  // the comment is not anchored anywhere in the text, so Word does not show it either: nothing to keep
+  expect(s.dropped).toEqual(["headers", "tracked_changes", "other_content"]);
   await expect(s.save()).rejects.toThrow(
-    "Saving will remove parts DocBro can't keep: headers, comments, tracked changes, other content. Save under a new name, or confirm.",
+    "Saving will remove parts DocBro can't keep: headers, tracked changes, other content. Save under a new name, or confirm.",
   );
 });
 
@@ -170,6 +173,7 @@ test("saving_markdown_with_a_footer_needs_confirmation", async () => {
 });
 
 test("saving_markdown_names_comments_headers_and_footers_in_that_order", async () => {
+  editor.commands.setContent({ type: "doc", content: [{ type: "paragraph", content: [COMMENTED] }] });
   s.setMeta({
     footer: "Draft",
     header: "Top",
@@ -242,6 +246,7 @@ test("set_meta_marks_dirty_and_matching_the_saved_meta_is_clean_again", async ()
 });
 
 test("a_comment_card_opening_for_edit_is_not_an_edit_of_the_document", async () => {
+  editor.commands.setContent({ type: "doc", content: [{ type: "paragraph", content: [COMMENTED] }] });
   const comment = { id: "c1", author: "Rina", date: "2026-10-01T09:00:00Z", text: "Cek" };
   s.setMeta({ comments: [comment] });
   s.markSaved();

@@ -38,3 +38,15 @@ export function viewportLayout(width: number, ui: UiState): LayoutFlags {
 export function toggleOutline(shown: boolean): Partial<UiState> {
   return shown ? { hideOutline: true, forceOutline: false } : { hideOutline: false, forceOutline: true };
 }
+
+/**
+ * What has to change for the comments rail to show in a window `width` px wide: Focus mode off, the rail not hidden,
+ * and the Assistant closed when the two do not fit side by side. Null when the window is too narrow for the rail.
+ */
+export function roomForComments(width: number, ui: UiState): Partial<UiState> | null {
+  const patch: Partial<UiState> = {};
+  if (ui.focus) patch.focus = false;
+  if (ui.hideComments) patch.hideComments = false;
+  if (!viewportLayout(width, { ...ui, ...patch }).showComments && ui.assistantOpen) patch.assistantOpen = false;
+  return viewportLayout(width, { ...ui, ...patch }).showComments ? patch : null;
+}

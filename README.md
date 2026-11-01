@@ -28,7 +28,7 @@ DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It
 **Documents**
 
 - Open `.docx` and `.md` files from the Open dialog, by dragging them onto the window, or with Finder's *Open With*. Save as `.docx`, or pick `.md` in *Save as…*
-- A Word file keeps its page size, margins, headers and footers. If it holds parts DocBro can't keep yet, such as footnotes or tracked changes, saving over it first names those parts and asks before anything is lost.
+- A Word file keeps its page size, margins, headers, footers and comments. If it holds parts DocBro can't keep yet, such as footnotes or tracked changes, saving over it first names those parts and asks before anything is lost.
 - Pages laid out as sheets, with page breaks, headers, footers and page numbers
 - Headings, lists, tables, images, links, quotes, dividers, text color, highlight, alignment and comments
 - One document per window
@@ -44,7 +44,7 @@ DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It
 
 **AI**
 
-- **Built-in MCP server.** AI clients connect over HTTP on `127.0.0.1`, or over stdio with `--mcp-stdio`, and get 11 document tools: `document_info`, `read_document`, `insert_content`, `replace_blocks`, `delete_blocks`, `find_replace`, `format_text`, `undo`, `redo`, `open_document` and `save_document`.
+- **Built-in MCP server.** AI clients connect over HTTP on `127.0.0.1`, or over stdio with `--mcp-stdio`, and get 13 document tools: `document_info`, `read_document`, `insert_content`, `replace_blocks`, `delete_blocks`, `find_replace`, `format_text`, `list_comments`, `add_comment`, `undo`, `redo`, `open_document` and `save_document`.
 - **Assistant panel.** Chat with Claude about the document. It can use DocBro's document tools and the tools of any MCP server you add, whether HTTP or stdio.
 - When another app's AI edits the document, its tool calls show up in the Assistant panel as "External" cards.
 

@@ -153,6 +153,8 @@ export const api = {
   writeFile: (path: string, bytes: Uint8Array) =>
     invoke<void>("write_file", bytes, { headers: { "x-path": encodeURIComponent(path) } }),
   fileExists: (path: string) => invoke<boolean>("file_exists", { path }),
+  /** The user's login name, which their comments are by; "Author" when the OS does not say. */
+  userName: () => invoke<string>("user_name"),
   /**
    * Tells the shell what this window shows. `blank` is the empty document a window starts
    * with: while it is untouched, a file opened from Finder replaces it.

@@ -274,3 +274,18 @@ test("while_a_header_or_footer_is_edited_page_numbers_puts_a_page_field_at_the_c
   expect(actions.togglePageNumbers).not.toHaveBeenCalled();
   expect((editor.getJSON() as JSONContent).content![0].content!.map((n) => n.type === "field" ? `{${n.attrs!.instr}}` : n.text).join("")).toBe("Hello{PAGE} world");
 });
+
+test("comment_needs_the_room_for_its_card_and_the_document_editor", () => {
+  const addComment = vi.fn();
+  const width = window.innerWidth;
+  try {
+    window.innerWidth = 1100;
+    expect(byId(host({ actions: { addComment } }), "comment").enabled).toBe(false);
+    window.innerWidth = 1300;
+    expect(byId(host({ actions: { addComment } }), "comment").enabled).toBe(true);
+    // a header or footer being edited has no comments
+    expect(byId(host({ actions: { addComment }, zoneEditing: true }), "comment").enabled).toBe(false);
+  } finally {
+    window.innerWidth = width;
+  }
+});

@@ -10,6 +10,7 @@ import StarterKit from "@tiptap/starter-kit";
 import type { Spacing } from "../doc/meta";
 import { spacingStyle } from "../layout/look";
 import { inkOn, isAutomaticColor } from "./automaticColor";
+import { CommentMark } from "./comment";
 import { Field } from "./field";
 import { firstFamily, fontName, fontStack } from "./fonts";
 import { PageBreak } from "./pageBreak";
@@ -190,6 +191,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     PastedColor,
     Typeface,
     Highlight.configure({ multicolor: true }),
+    CommentMark,
     IndentedTable.configure({ resizable: true, View: IndentedTableView }),
     TableRow,
     FilledHeader,

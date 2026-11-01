@@ -1,8 +1,8 @@
 import type { Editor } from "@tiptap/core";
 import { AllSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { commit } from "../editor/history";
 import { markdownToDoc } from "../formats/markdown";
-import { commit } from "../mcp/tools";
 
 /** How long inserted blocks stay tinted (mock 480–486). */
 const FLASH_MS = 1200;

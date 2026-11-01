@@ -40,7 +40,10 @@ export async function buildDocx(parts: {
   numbering?: string;
   // "first-page-only" is a header Word shows on the first page alone: a variant DocBro keeps nowhere.
   header?: boolean | "two-paragraphs" | "first-page-only";
-  comments?: boolean;
+  // true: one comment that nothing in the text refers to; a string: the content of `w:comments`
+  comments?: boolean | string;
+  // the content of `w15:commentsEx`: reply threads and resolved comments
+  commentsExtended?: string;
 }): Promise<Uint8Array> {
   const overrides = [`<Override PartName="/word/document.xml" ContentType="${TYPE}.document.main+xml"/>`];
   const rels: string[] = [];
@@ -64,8 +67,9 @@ export async function buildDocx(parts: {
     headerId = add("header1", "header", part("w:hdr", paragraphs));
   }
   if (parts.comments)
-    add("comments", "comments", part("w:comments",
+    add("comments", "comments", part("w:comments", typeof parts.comments === "string" ? parts.comments :
       '<w:comment w:id="0" w:author="Rina" w:date="2026-10-01T09:00:00Z" w:initials="R"><w:p><w:r><w:t>Comment text</w:t></w:r></w:p></w:comment>'));
+  if (parts.commentsExtended !== undefined) add("commentsExtended", "commentsExtended", part("w15:commentsEx", parts.commentsExtended));
 
   // Without a section reference Word would not use the header, and the importer would not see it.
   const section = headerId

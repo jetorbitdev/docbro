@@ -1,6 +1,7 @@
 import type { Editor, EditorEvents } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, Selection } from "@tiptap/pm/state";
+import { commentIds, liveComments } from "../editor/comment";
 import { formatOf, readDocument, UNKNOWN_FORMAT, writeDocument } from "../formats";
 import type { DroppedPart } from "../formats/docx/import";
 import { emptyMeta, type DocMeta } from "./meta";
@@ -23,9 +24,10 @@ const UNSAVED = "The document has unsaved changes. Save it first, or pass discar
 
 const isAbsolute = (path: string) => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
 
-// Key order and a comment's `editing` flag (which card has its text box open) are not content.
-const metaKey = (meta: DocMeta) =>
-  JSON.stringify(meta, (_key, value) =>
+// Key order, a comment's `editing` flag (which card has its text box open) and a comment whose mark is not in the
+// document (`marked`, the ids that are) are not content.
+const metaKey = (meta: DocMeta, marked: Set<string>) =>
+  JSON.stringify({ ...meta, comments: meta.comments.filter((c) => marked.has(c.id)) }, (_key, value) =>
     value && typeof value === "object" && !Array.isArray(value)
       ? Object.fromEntries(
           Object.entries(value)
@@ -53,6 +55,8 @@ export class DocSession {
   // so comparing is fast however long the document is.
   private savedDoc: ProseMirrorNode;
   private savedMeta: string;
+  // The comments marked in the saved document: while the document is the saved one, these are its comments.
+  private savedComments: Set<string>;
   private told: { path: string | null; dirty: boolean; blank: boolean };
   private loading = false;
   private listeners = new Set<() => void>();
@@ -68,7 +72,8 @@ export class DocSession {
     private io: SessionIO,
   ) {
     this.savedDoc = editor.state.doc;
-    this.savedMeta = metaKey(this._meta);
+    this.savedComments = commentIds(editor.state.doc);
+    this.savedMeta = metaKey(this._meta, this.savedComments);
     this.told = this.snapshot();
     editor.on("transaction", this.onTransaction);
   }
@@ -89,7 +94,7 @@ export class DocSession {
   }
 
   get dirty(): boolean {
-    return !this.editor.state.doc.eq(this.savedDoc) || metaKey(this._meta) !== this.savedMeta;
+    return !this.editor.state.doc.eq(this.savedDoc) || metaKey(this._meta, this.savedComments) !== this.savedMeta;
   }
 
   /** The empty document a window starts with: no file, nothing typed. */
@@ -171,12 +176,16 @@ export class DocSession {
         throw new LossyWriteError(`Saving will remove parts DocBro can't keep: ${parts}. Save under a new name, or confirm.`);
       }
       if (format === "md") {
-        const parts = [meta.comments.length && "comments", (meta.header || meta.headerPart) && "headers", (meta.footer || meta.footerPart) && "footers"].filter(Boolean);
+        const parts = [liveComments(meta.comments, node).length && "comments", (meta.header || meta.headerPart) && "headers", (meta.footer || meta.footerPart) && "footers"].filter(Boolean);
         if (parts.length) throw new LossyWriteError(`Markdown can't keep ${parts.join(", ")}. Save as .docx, or confirm.`);
       }
     }
 
     await this.io.write(target, await writeDocument(target, doc, meta));
+    // A comment whose mark is gone (resolved, undone) goes for good; one whose mark came back while the file was
+    // written stays.
+    const marked = new Set([...commentIds(node), ...commentIds(this.editor.state.doc)]);
+    this._meta = { ...this._meta, comments: this._meta.comments.filter((c) => marked.has(c.id)) };
     this._path = target;
     this._dropped = []; // the file written has none of them
     this.capture(node, meta);
@@ -199,7 +208,8 @@ export class DocSession {
 
   private capture(doc: ProseMirrorNode, meta: DocMeta) {
     this.savedDoc = doc;
-    this.savedMeta = metaKey(meta);
+    this.savedComments = commentIds(doc);
+    this.savedMeta = metaKey(meta, this.savedComments);
   }
 
   /** Swaps the editor's content for `node`. The result has nothing to undo and no `update` event. */

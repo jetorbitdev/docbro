@@ -5,7 +5,8 @@ import type { CommandHost } from "./commands";
 import { LossyWriteError, type DocSession } from "./doc/session";
 import { formatOf, UNKNOWN_FORMAT } from "./formats";
 import { pickImage } from "./layout/blocks";
-import type { UiState } from "./layout/viewport";
+import { addComment } from "./layout/comments";
+import { roomForComments, type UiState } from "./layout/viewport";
 
 type Filter = { name: string; extensions: string[] };
 
@@ -149,12 +150,14 @@ export interface ActionDeps {
   openFind?(replace: boolean): void;
   /** Opens the header or footer just switched on for typing. */
   openZone?(kind: "header" | "footer"): void;
+  /** Who a new comment is by; without it there is no Comment action. */
+  commentAuthor?: string;
   shell?: Shell;
 }
 
-/** The actions behind the commands that need more than the editor. Tasks 13 and 14 add theirs here. */
+/** The actions behind the commands that need more than the editor. */
 export function buildActions(deps: ActionDeps): CommandHost["actions"] {
-  const { editor, session, openPalette, openLink, openColor, openFont, openFind, openZone, shell = tauriShell } = deps;
+  const { editor, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor, shell = tauriShell } = deps;
   return {
     newWindow: () => void shell.openInWindow(null).catch(shell.showError),
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
@@ -184,5 +187,13 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     ...(openColor && { pickColor: openColor }),
     ...(openFont && { pickFont: openFont }),
     ...(openFind && { find: () => openFind(false), replace: () => openFind(true) }),
+    // the new comment's card opens in the rail, which may first need the room
+    ...(commentAuthor !== undefined && {
+      addComment: () => {
+        if (addComment(editor, session, commentAuthor) === null) return;
+        const room = roomForComments(window.innerWidth, ui);
+        if (room && Object.keys(room).length) setUi(room);
+      },
+    }),
   };
 }

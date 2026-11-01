@@ -7,7 +7,7 @@ test("the_schema_has_exactly_the_shared_node_and_mark_names", () => {
     ["blockquote", "bulletList", "doc", "field", "hardBreak", "heading", "horizontalRule", "image", "listItem",
       "orderedList", "pageBreak", "paragraph", "table", "tableCell", "tableHeader", "tableRow", "text"]);
   expect(Object.keys(schema.marks).sort()).toEqual(
-    ["bold", "highlight", "italic", "link", "strike", "textStyle", "underline"]);
+    ["bold", "comment", "highlight", "italic", "link", "strike", "textStyle", "underline"]);
 });
 
 test("a_headless_editor_edits_and_reads_back_the_document", () => {

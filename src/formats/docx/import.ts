@@ -5,6 +5,7 @@ import { PAPER, TWIPS_PER_PX, emptyMeta, type DocLook, type DocMeta, type KeptPa
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
 import { fontName } from "../../editor/fonts";
+import { commentEdge, commentWalk, openCommentMarks, settleComments, wordComments, type CommentWalk } from "./comments";
 import { MEDIA_TYPES } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
@@ -67,6 +68,8 @@ interface Context {
   filled?: boolean;
   // The field being read: where each field open inside it is, outermost first, and what has been read of it.
   field?: { phases: ("instr" | "result")[]; instr: string; text: string; marks: Mark[] };
+  // The body's comments, and whose range the walk is in. A header or footer has none.
+  comments?: CommentWalk;
 }
 
 // A block of the body before consecutive list and quote paragraphs are grouped.
@@ -89,6 +92,7 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
   const [styles, numbering, rels, theme] = await Promise.all(
     ["word/styles.xml", "word/numbering.xml", "word/_rels/document.xml.rels", "word/theme/theme1.xml"].map((path) => readXml(zip, path)),
   );
+  const comments = await readComments(zip);
   const relations = relationships(rels);
   const defaults = first(styles?.documentElement ?? null, "w:docDefaults");
   const ctx: Context = {
@@ -105,12 +109,18 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     dropped: await droppedParts(zip, body),
     page: pageEmu(lastSection(body)),
     textWidth: textWidthPx(lastSection(body)),
+    comments: commentWalk(comments.list),
   };
+  if (comments.damaged) ctx.dropped.add("comments");
   ctx.spacing = spacingOf(ctx, null, null);
   ctx.font = bodyFont(body, ctx, theme);
   ctx.headings = [1, 2, 3].map((level) => spacingOf(ctx, null, headingStyle(ctx, level)));
-  const doc = finish(trimCovers(blocks(body, ctx)));
+  const content = trimCovers(blocks(body, ctx));
+  const kept = settleComments(content, ctx.comments!);
+  if (kept.lost) ctx.dropped.add("comments");
+  const doc = finish(content);
   const meta = await readHeaderFooter(zip, body, relations, ctx);
+  meta.comments = kept.comments;
   meta.pageSize = pageSizeOf(lastSection(body));
   meta.look = lookOf(body, ctx);
   return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
@@ -161,6 +171,16 @@ async function open(bytes: Uint8Array): Promise<JSZip> {
     return await JSZip.loadAsync(bytes, { checkCRC32: true });
   } catch {
     throw new Error("Not a Word document, or the file is damaged");
+  }
+}
+
+// The comments and their threads. A part that cannot be read leaves the comments out, and says so.
+async function readComments(zip: JSZip): Promise<{ list: ReturnType<typeof wordComments>; damaged: boolean }> {
+  try {
+    const [comments, extended] = await Promise.all(["word/comments.xml", "word/commentsExtended.xml"].map((path) => readXml(zip, path)));
+    return { list: wordComments(comments, extended), damaged: false };
+  } catch {
+    return { list: [], damaged: true };
   }
 }
 
@@ -248,7 +268,6 @@ async function droppedParts(zip: JSZip, body: Element): Promise<Set<DroppedPart>
     if (type.endsWith(".header+xml")) dropped.add("headers");
     if (type.endsWith(".footer+xml")) dropped.add("footers");
   }
-  if (zip.file("word/comments.xml")) dropped.add("comments");
   for (const [path, name] of [["word/footnotes.xml", "w:footnote"], ["word/endnotes.xml", "w:endnote"]]) {
     const notes = await readXml(zip, path);
     // Ids -1, 0 (and 1 in older files) are the separator lines, typed as such.
@@ -368,7 +387,9 @@ async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFoo
 // What the page shows of a kept part: its blocks, with the pictures put first. Word anchors a logo into a line of
 // text and lets the text run beside it; the page floats pictures to the left, which needs them ahead of the text.
 async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<{ view: JSONContent | null; unseen: boolean }> {
-  const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), part: true };
+  const part: Context = {
+    ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), part: true, comments: undefined,
+  };
   try {
     const content = blocks(root, part).map((node) =>
       node.type === "image" ? { ...node, attrs: { ...node.attrs, cover: false } } : node);
@@ -726,6 +747,7 @@ function collect(container: Element | null, ctx: Context, items: Item[]): void {
     else if (is(el, "mc:AlternateContent")) collect(choice(el), ctx, items);
     else if (is(el, "w:customXml") || is(el, "w:ins") || is(el, "w:moveTo")) collect(el, ctx, items);
     else if (is(el, "w:altChunk")) ctx.dropped.add("other_content");
+    else commentEdge(el, ctx.comments); // a comment's range can start or end between paragraphs
   }
 }
 
@@ -856,11 +878,17 @@ function isRule(pPr: Element | null): boolean {
 
 const UNWRAP = ["w:ins", "w:moveTo", "w:smartTag", "w:customXml", "w:fldSimple", "w:dir", "w:bdo"];
 
-// Text, breaks and pictures of a paragraph. Deleted text (w:del, w:moveFrom),
-// bookmarks, comment anchors and proofing marks have nothing to keep.
+// Text, breaks and pictures of a paragraph, with the comments whose range they are in. Deleted text (w:del,
+// w:moveFrom), bookmarks and proofing marks have nothing to keep.
 function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: JSONContent[]): void {
   for (const el of children(parent)) {
-    if (is(el, "w:r")) run(el, ctx, runMarks(first(el, "w:rPr"), link, ctx.filled, ctx.part ? undefined : ctx.font), out);
+    if (is(el, "w:r")) {
+      const marks = [...runMarks(first(el, "w:rPr"), link, ctx.filled, ctx.part ? undefined : ctx.font), ...openCommentMarks(ctx.comments)];
+      const before = out.length;
+      run(el, ctx, marks, out);
+      if (out.slice(before).some((node) => node.type === "text" || node.type === "hardBreak"))
+        for (const id of ctx.comments?.open ?? []) ctx.comments!.marked.add(id);
+    } else if (commentEdge(el, ctx.comments)) continue;
     else if (is(el, "w:hyperlink")) {
       const href = ctx.links.get(attr(el, "r:id") ?? "");
       inlines(el, ctx, href ? { type: "link", attrs: { href } } : link, out);
@@ -960,6 +988,7 @@ function run(r: Element | null, ctx: Context, marks: Mark[], out: JSONContent[])
       ctx.dropped.add("other_content");
     }
     else if (is(el, "mc:AlternateContent")) run(choice(el), ctx, marks, out);
+    else commentEdge(el, ctx.comments); // the reference that ends a comment's range
   }
 }
 

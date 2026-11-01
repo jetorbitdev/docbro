@@ -2,19 +2,21 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
-import { useEditor } from "@tiptap/react";
+import { useEditor, useEditorState } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
 import { PAPER, TWIPS_PER_PX, editWarning, zonePatch, zoneView, type Zone } from "./doc/meta";
 import { DocSession, type SessionIO } from "./doc/session";
+import { liveComments } from "./editor/comment";
 import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
 import { paginationKey, paginationPlugin, paperGeometry, repaginate } from "./editor/pagination";
 import { FindBar, type FindRequest } from "./editor/FindBar";
 import { AssistantPanel } from "./layout/AssistantPanel";
 import { CommandPalette } from "./layout/CommandPalette";
+import { CommentsRail } from "./layout/CommentsRail";
 import { Dock } from "./layout/Dock";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
@@ -93,6 +95,9 @@ export default function App() {
   const [popover, setPopover] = useState<"link" | "color" | "font" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
   const findCount = useRef(0);
+  // who this window's comments are by
+  const [userName, setUserName] = useState("Author");
+  useEffect(() => void api.userName().then(setUserName, () => {}), []);
 
   const setUi = useCallback((patch: Partial<UiState>) => setUiState((u) => ({ ...u, ...patch })), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
@@ -242,8 +247,11 @@ export default function App() {
   }, [editor, paper, pageRatio, pageZoom, ui.sansFont]);
 
   const actions = useMemo(
-    () => (session ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone }) : {}),
-    [target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone],
+    () =>
+      session
+        ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor: userName })
+        : {},
+    [target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, userName],
   );
   const commands: Command[] = session ? buildCommands({ editor: target, zoneEditing: !!zoneEditor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
@@ -305,8 +313,13 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
+  // the comments whose mark is in the document; the text moves under them as it is edited
+  const comments = useEditorState({
+    editor,
+    selector: ({ editor }) => (session ? liveComments(session.meta.comments, editor.state.doc) : []),
+  });
   // the rail takes room from the page, so it is only there when the document has comments to put in it
-  const showComments = layout.showComments && (session?.meta.comments.length ?? 0) > 0;
+  const showComments = layout.showComments && comments.length > 0;
   const comment = commands.find((c) => c.id === "comment");
   const leftMode = layout.showOutline ? "outline" : layout.outlineRail ? "rail" : "none";
   // the page narrows beside an open comments rail, so a panel that opens or closes can rewrap the text: hold the reading position
@@ -361,13 +374,15 @@ export default function App() {
                 {popover === "color" && <ColorPopover editor={target} paper={paper} onClose={closePopover} />}
                 {popover === "font" && <FontPopover editor={target} paper={paper} onClose={closePopover} />}
               </Paper>
-              {/* the comment cards (Task 13) go in .comments-inner, which keeps its width while the rail opens */}
+              {/* the comment cards go in .comments-inner, which keeps its width while the rail opens */}
               <div
                 className={`comments-rail${showComments ? " open" : ""}`}
                 inert={!showComments}
                 aria-hidden={showComments ? undefined : true}
               >
-                <div className="comments-inner" />
+                <div className="comments-inner">
+                  {session && <CommentsRail editor={editor} session={session} comments={comments} userName={userName} open={showComments} />}
+                </div>
               </div>
             </div>
           </div>

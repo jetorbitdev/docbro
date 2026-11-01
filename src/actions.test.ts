@@ -332,11 +332,33 @@ test("every_command_is_enabled_in_the_real_app", () => {
     openColor: () => {},
     openFont: () => {},
     openFind: () => {},
+    commentAuthor: "Gilang",
     shell: fakeShell(),
   });
+  const width = window.innerWidth;
+  window.innerWidth = 1300; // room for the comments rail
   const commands = buildCommands({ editor, session, ui, setUi, actions });
-  // Task 13 adds the comment action; every other command has its action.
-  expect(commands.filter((c) => !c.enabled).map((c) => c.id)).toEqual(["comment"]);
+  window.innerWidth = width;
+  expect(commands.filter((c) => !c.enabled).map((c) => c.id)).toEqual([]);
+});
+
+test("comment_puts_one_on_the_selection_and_brings_the_rail_in", () => {
+  editor.commands.setContent("<p>Hello world</p>");
+  editor.commands.setTextSelection({ from: 1, to: 6 });
+  const setUi = vi.fn();
+  const ui: UiState = {
+    focus: false, hideOutline: false, forceOutline: false, hideComments: true,
+    assistantOpen: true, menuBar: true, largerText: false, sansFont: false,
+  };
+  const width = window.innerWidth;
+  window.innerWidth = 1400;
+  try {
+    buildActions({ editor, session, ui, setUi, openPalette: () => {}, commentAuthor: "Gilang", shell: fakeShell() }).addComment!();
+  } finally {
+    window.innerWidth = width;
+  }
+  expect(session.meta.comments).toEqual([expect.objectContaining({ author: "Gilang", text: "", editing: true })]);
+  expect(setUi).toHaveBeenCalledWith({ hideComments: false, assistantOpen: false });
 });
 
 test("find_and_replace_open_the_find_bar_in_their_two_modes", () => {
