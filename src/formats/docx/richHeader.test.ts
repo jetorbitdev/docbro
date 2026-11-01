@@ -215,3 +215,55 @@ test("a_package_with_a_kept_part_holds_files_only_as_the_library_writes_it", asy
   const zip = await JSZip.loadAsync(await exportDocx(opened.doc, opened.meta));
   expect(Object.keys(zip.files).filter((name) => name.endsWith("/"))).toEqual([]);
 });
+
+// ---------------------------------------------------------------- after it is edited
+
+const para = (text: string, textAlign: string | null = null, marks?: object[]) =>
+  ({ type: "paragraph", attrs: { textAlign }, content: [{ type: "text", text, ...(marks && { marks }) }] });
+const edited = (...content: object[]) => ({ xml: null, rels: null, media: {}, view: { type: "doc", content } });
+
+test("an_edited_header_is_written_from_what_it_shows_with_the_logo_floating_beside_the_text_after_it", async () => {
+  const logo = { type: "image", attrs: { src: PIXEL, alt: null, width: 137, height: 25 } };
+  const meta = { ...emptyMeta(), headerPart: edited(logo, para("PT Baru", "right", [{ type: "bold" }]), para("Tagline", "right"), { type: "horizontalRule" }) };
+  const bytes = await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta);
+
+  const xml = (await read(bytes, "word/header1.xml"))!;
+  const first = /<w:p\b.*?<\/w:p>/s.exec(xml)![0];
+  expect(first).toContain("PT Baru"); // the logo shares the first line of text
+  expect(first).toContain("<wp:anchor");
+  expect(first).toMatch(/<wp:wrapSquare[^>]*wrapText="right"/);
+  expect(xml).toMatch(/<wp:extent cx="1304925" cy="238125"\/>/); // 137 x 25 px
+
+  const again = await importDocx(bytes);
+  expect(again.dropped).toEqual([]);
+  expect(types(again.meta.headerPart!.view)).toEqual(["image", "paragraph", "paragraph", "horizontalRule"]);
+  expect(again.meta.headerPart!.view!.content![1]).toMatchObject({ attrs: { textAlign: "right" }, content: [{ text: "PT Baru", marks: [{ type: "bold" }] }] });
+  expect(again.meta.headerPart!.view!.content![0].attrs).toMatchObject({ width: 137, height: 25 });
+});
+
+test("an_edited_footer_is_written_from_what_it_shows", async () => {
+  const meta = { ...emptyMeta(), footerPart: edited(para("Alamat baru"), para("www.contoh.id", "center")) };
+  const again = await importDocx(await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta));
+  expect(again.dropped).toEqual([]);
+  expect(again.meta.footerPart!.view!.content!.map((n) => n.content?.[0]?.text)).toEqual(["Alamat baru", "www.contoh.id"]);
+});
+
+test("a_picture_with_no_text_after_it_is_written_on_a_line_of_its_own", async () => {
+  const meta = { ...emptyMeta(), headerPart: edited(para("Atas"), { type: "image", attrs: { src: PIXEL, alt: null, width: 20, height: 20 } }) };
+  const again = await importDocx(await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta));
+  expect(types(again.meta.headerPart!.view)).toEqual(["image", "paragraph"]);
+});
+
+test("a_kept_part_says_what_editing_it_would_turn_into_plain_text", async () => {
+  const letterhead = await importDocx(await pack(part("hdr", LETTERHEAD), { rels: imageRels, media: { "image1.png": PNG } }));
+  expect(letterhead.meta.headerPart!.editLoses).toEqual([]);
+
+  const field = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  const paged = await importDocx(await pack(part("ftr", `<w:p>${field}</w:p><w:p><w:r><w:t>x</w:t></w:r></w:p>`), { kind: "footer" }));
+  expect(paged.meta.footerPart!.editLoses).toEqual(["fields"]);
+
+  const simple = '<w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>1/11</w:t></w:r></w:fldSimple></w:p><w:p/>';
+  const textbox = '<w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>kotak</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>';
+  const both = await importDocx(await pack(part("hdr", simple + textbox)));
+  expect(both.meta.headerPart!.editLoses).toEqual(["fields", "other_content"]);
+});

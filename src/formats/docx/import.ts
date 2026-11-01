@@ -337,19 +337,24 @@ async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFoo
   const rels = lines.length
     ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${lines.join("")}</Relationships>`
     : null;
-  return { xml: await zip.file(path)!.async("string"), rels, media, view: await viewOf(zip, root, relationships(relsDoc), ctx) };
+  const { view, unseen } = await viewOf(zip, root, relationships(relsDoc), ctx);
+  const editLoses: KeptPart["editLoses"] = [];
+  if (["w:fldChar", "w:fldSimple", "w:instrText"].some((name) => descendants(root, name).length)) editLoses.push("fields");
+  if (unseen || ["w:txbxContent", "c:chart", "dgm:*", "m:oMath"].some((name) => descendants(root, name).length)) editLoses.push("other_content");
+  return { xml: await zip.file(path)!.async("string"), rels, media, view, editLoses };
 }
 
 // What the page shows of a kept part: its blocks, with the pictures put first. Word anchors a logo into a line of
 // text and lets the text run beside it; the page floats pictures to the left, which needs them ahead of the text.
-async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<JSONContent | null> {
+async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<{ view: JSONContent | null; unseen: boolean }> {
+  const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), sized: true };
   try {
-    const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), sized: true };
     const content = blocks(root, part).map((node) =>
       node.type === "image" ? { ...node, attrs: { ...node.attrs, cover: false } } : node);
-    return finish([...content.filter((n) => n.type === "image"), ...content.filter((n) => n.type !== "image")]);
+    const view = finish([...content.filter((n) => n.type === "image"), ...content.filter((n) => n.type !== "image")]);
+    return { view, unseen: part.dropped.size > 0 };
   } catch {
-    return null;
+    return { view: null, unseen: true };
   }
 }
 

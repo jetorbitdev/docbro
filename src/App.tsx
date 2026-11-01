@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
-import { PAPER } from "./doc/meta";
+import { PAPER, editWarning } from "./doc/meta";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
@@ -83,6 +83,8 @@ export default function App() {
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
   const [pageLayout, setPageLayout] = useState<PageLayout | null>(null);
+  // A header or footer kept from the file that is being edited, and on which sheet.
+  const [editingPart, setEditingPart] = useState<{ kind: "header" | "footer"; sheet: number } | null>(null);
   const pageConfig = useRef({ ratio: PAPER.letter.height / PAPER.letter.width, zoom: 1 });
   const [popover, setPopover] = useState<"link" | "color" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
@@ -93,6 +95,19 @@ export default function App() {
   const openLink = useCallback(() => setPopover("link"), []);
   const openColor = useCallback(() => setPopover("color"), []);
   const closePopover = useCallback(() => setPopover(null), []);
+  // A double-click in a sheet's margin: edit the header or footer kept from the file, once the person agrees to what that loses.
+  const editPart = useCallback(
+    async (kind: "header" | "footer", sheet: number) => {
+      const part = session?.meta[`${kind}Part`];
+      const warning = part && editWarning(part, kind);
+      if (warning && !(await ask(warning, { title: `Edit ${kind}`, kind: "warning", okLabel: "Edit", cancelLabel: "Cancel" }))) return;
+      setEditingPart({ kind, sheet });
+    },
+    [session],
+  );
+  const endPartEdit = useCallback(() => setEditingPart(null), []);
+  // another document in the window has a header and footer of its own
+  useEffect(() => setEditingPart(null), [session, doc.path]);
   // Edit ▸ Find… and Find and replace…: opens the bar, or takes the focus back to one already open
   const openFind = useCallback(
     (replace: boolean) => setFindRequest({ id: ++findCount.current, replace, seed: seedQuery(editor.state) }),
@@ -296,6 +311,11 @@ export default function App() {
                 layout={pageLayout}
                 headerPart={session?.meta.headerPart}
                 footerPart={session?.meta.footerPart}
+                editing={editingPart && session?.meta[`${editingPart.kind}Part`] ? editingPart : null}
+                onEdit={editPart}
+                onPartChange={(kind, view) =>
+                  session?.setMeta({ [`${kind}Part`]: { xml: null, rels: null, media: {}, view, editLoses: [] } })}
+                onEditEnd={endPartEdit}
                 paperRef={setPaper}
                 header={
                   session && (

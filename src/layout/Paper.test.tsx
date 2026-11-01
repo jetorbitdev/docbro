@@ -114,3 +114,70 @@ test("the_margins_grow_to_the_height_of_the_header_and_the_footer_once_they_are_
     vi.restoreAllMocks();
   }
 });
+
+// ---------------------------------------------------------------- editing a kept part
+
+const PARTS = { headerPart: HEADER, footerPart: FOOTER };
+type Editing = ComponentProps<typeof Paper>["editing"];
+
+function editable(editing: Editing, handlers: Partial<ComponentProps<typeof Paper>> = {}) {
+  show(LAYOUT, { ...PARTS, editing, onEdit: () => {}, onPartChange: () => {}, onEditEnd: () => {}, ...handlers });
+}
+const hits = (where: "top" | "bottom") => [...host.querySelectorAll<HTMLElement>(`.hf-hit-${where}`)];
+const proseIn = (el: Element) => el.querySelector(".ProseMirror") as HTMLElement & { editor: Editor };
+
+test("a_double_click_in_the_margin_of_any_sheet_asks_to_edit_that_sheets_header_or_footer", () => {
+  const onEdit = vi.fn();
+  editable(null, { onEdit });
+  expect(hits("top")).toHaveLength(3);
+  expect(hits("bottom")).toHaveLength(3);
+  act(() => void hits("top")[1].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  expect(onEdit).toHaveBeenLastCalledWith("header", 1);
+  act(() => void hits("bottom")[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  expect(onEdit).toHaveBeenLastCalledWith("footer", 2);
+});
+
+test("without_a_way_to_edit_or_without_a_view_there_is_nothing_to_double_click", () => {
+  show(LAYOUT, PARTS);
+  expect(hits("top")).toHaveLength(0);
+  show(LAYOUT, { headerPart: { ...HEADER, view: null }, onEdit: () => {} });
+  expect(hits("top")).toHaveLength(0);
+});
+
+test("while_a_header_is_edited_an_editor_holding_it_sits_on_that_sheet_in_place_of_its_copy", () => {
+  editable({ kind: "header", sheet: 1 });
+  const editor = host.querySelector<HTMLElement>(".hf-editor")!;
+  expect(proseIn(editor).textContent).toBe("PT Jetorbit");
+  expect(editor.style.top).toContain("1020px"); // the second sheet starts a page and a gap down
+  expect(sheets().map((s) => s.querySelector(".hf-sheet-top")!.classList.contains("editing"))).toEqual([false, true, false]);
+  expect(hits("top")).toHaveLength(0); // the margins are not double-clicked while editing
+});
+
+test("what_is_typed_in_the_header_editor_is_sent_as_the_new_view", () => {
+  const onPartChange = vi.fn();
+  editable({ kind: "header", sheet: 0 }, { onPartChange });
+  act(() => void proseIn(host.querySelector(".hf-editor")!).editor.commands.insertContentAt(2, "Baru ")); // after the logo (0) and inside the paragraph that follows
+  const [kind, view] = onPartChange.mock.lastCall!;
+  expect(kind).toBe("header");
+  expect(JSON.stringify(view)).toContain("Baru PT Jetorbit");
+  // nothing is added to it: no empty line after the rule, which Word would show
+  expect(view.content.map((n: { type: string }) => n.type)).toEqual(["image", "paragraph", "horizontalRule"]);
+});
+
+test("escape_finishes_editing", () => {
+  const onEditEnd = vi.fn();
+  editable({ kind: "footer", sheet: 2 }, { onEditEnd });
+  const prose = proseIn(host.querySelector(".hf-editor")!);
+  expect(prose.textContent).toBe("Jl. Godean KM 4,5");
+  act(() => void prose.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(onEditEnd).toHaveBeenCalled();
+});
+
+test("the_caret_starts_at_the_end_of_the_last_line_of_text_even_when_a_rule_comes_after_it", async () => {
+  editable({ kind: "header", sheet: 0 });
+  await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0)))); // the editor's create event comes a tick later
+  const { selection } = proseIn(host.querySelector(".hf-editor")!).editor.state;
+  expect(selection.empty).toBe(true);
+  expect(selection.$from.parent.textContent).toBe("PT Jetorbit");
+  expect(selection.$from.parentOffset).toBe("PT Jetorbit".length);
+});

@@ -24,6 +24,7 @@ import {
   TableLayoutType,
   TableRow,
   TextRun,
+  TextWrappingSide,
   TextWrappingType,
   UnderlineType,
   VerticalPositionRelativeFrom,
@@ -72,13 +73,14 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
   const children: Block[] = blocks(doc.content, ctx);
   if (children.length === 0) children.push(new Paragraph({}));
   // The library makes the part, the relationship and the section's reference; `graft` swaps in the file's own content.
+  // An edited part is written from what it shows.
   const header = meta?.headerPart
-    ? new Header({ children: [new Paragraph({})] })
+    ? new Header({ children: partChildren(meta.headerPart, ctx) })
     : meta && meta.header !== null
       ? new Header({ children: [new Paragraph({ children: meta.header ? [new TextRun(meta.header)] : [] })] })
       : undefined;
   const footer = meta?.footerPart
-    ? new Footer({ children: [new Paragraph({})] })
+    ? new Footer({ children: partChildren(meta.footerPart, ctx) })
     : meta && (meta.footer !== null || meta.pageNumbers)
       ? new Footer({ children: [footerParagraph(meta)] })
       : undefined;
@@ -123,14 +125,40 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
     ],
   });
   const bytes = await Packer.pack(file, "uint8array");
-  return meta?.headerPart || meta?.footerPart ? graft(bytes, { header: meta.headerPart, footer: meta.footerPart }) : bytes;
+  const untouched = (part: KeptPart | null | undefined): Untouched | null => (part && part.xml !== null ? { ...part, xml: part.xml } : null);
+  const parts = { header: untouched(meta?.headerPart), footer: untouched(meta?.footerPart) };
+  return parts.header || parts.footer ? graft(bytes, parts) : bytes;
+}
+
+// What a kept part is written as: a placeholder for `graft` while it is as the file had it, else its blocks. A picture
+// floats at the left of the line of text after it, with the text running beside it, as the page shows it (PartView).
+function partChildren(part: KeptPart, ctx: Context): Block[] {
+  if (part.xml !== null) return [new Paragraph({})];
+  const out: Block[] = [];
+  let pictures: Inline[] = [];
+  for (const node of part.view?.content ?? []) {
+    if (node.type === "image") {
+      pictures.push(image(node, ctx, true));
+    } else if ((node.type === "paragraph" || node.type === "heading") && pictures.length) {
+      out.push(...block(node, ctx, false, pictures));
+      pictures = [];
+    } else {
+      if (pictures.length) out.push(new Paragraph({ children: pictures }));
+      pictures = [];
+      out.push(...block(node, ctx, false));
+    }
+  }
+  if (pictures.length) out.push(new Paragraph({ children: pictures }));
+  return out.length ? out : [new Paragraph({})];
 }
 
 // The library writes files only, and so does the graft: a package with folder entries is not what Word makes.
 const NO_FOLDERS = { createFolders: false };
 
 // Puts the kept parts, their relationships and their pictures into a package that has a placeholder for each.
-async function graft(bytes: Uint8Array, parts: { header: KeptPart | null; footer: KeptPart | null }): Promise<Uint8Array> {
+type Untouched = KeptPart & { xml: string };
+
+async function graft(bytes: Uint8Array, parts: { header: Untouched | null; footer: Untouched | null }): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(bytes);
   const relsPath = "word/_rels/document.xml.rels";
   const documentRels = await zip.file(relsPath)!.async("string");
@@ -208,13 +236,14 @@ function blocks(nodes: JSONContent[] | undefined, ctx: Context, quoted = false):
   return (nodes ?? []).flatMap((node) => block(node, ctx, quoted));
 }
 
-function block(node: JSONContent, ctx: Context, quoted: boolean): Block[] {
+// `lead` goes in front of the text of a paragraph or heading: pictures floating beside it.
+function block(node: JSONContent, ctx: Context, quoted: boolean, lead: Inline[] = []): Block[] {
   switch (node.type) {
     case "paragraph":
-      return [paragraph(node, ctx, quoted ? { style: "Quote" } : {})];
+      return [paragraph(node, ctx, quoted ? { style: "Quote" } : {}, lead)];
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1));
-      return [paragraph(node, ctx, { heading: HEADINGS[level - 1] })];
+      return [paragraph(node, ctx, { heading: HEADINGS[level - 1] }, lead)];
     }
     case "blockquote":
       return blocks(node.content, ctx, true);
@@ -235,9 +264,9 @@ function block(node: JSONContent, ctx: Context, quoted: boolean): Block[] {
   }
 }
 
-function paragraph(node: JSONContent, ctx: Context, options: IParagraphOptions = {}): Paragraph {
+function paragraph(node: JSONContent, ctx: Context, options: IParagraphOptions = {}, lead: Inline[] = []): Paragraph {
   const align = ALIGNMENT[node.attrs?.textAlign as keyof typeof ALIGNMENT];
-  return new Paragraph({ ...options, alignment: align, children: inline(node.content, ctx) });
+  return new Paragraph({ ...options, alignment: align, children: [...lead, ...inline(node.content, ctx)] });
 }
 
 function list(node: JSONContent, ctx: Context, depth: number): Block[] {
@@ -413,7 +442,8 @@ function pixelSize(type: ImageType, b: Uint8Array): { width: number; height: num
   return undefined;
 }
 
-function image(node: JSONContent, ctx: Context): ImageRun | TextRun {
+// `float`: anchored at the left of its paragraph, with the text running down its right side.
+function image(node: JSONContent, ctx: Context, float = false): ImageRun | TextRun {
   const alt = typeof node.attrs?.alt === "string" && node.attrs.alt !== "" ? (node.attrs.alt as string) : undefined;
   const decoded = decodeImage(String(node.attrs?.src ?? ""));
   if (!decoded) return new TextRun(alt ?? "[image]");
@@ -433,11 +463,22 @@ function image(node: JSONContent, ctx: Context): ImageRun | TextRun {
       },
     });
 
-  const scale = Math.min(1, ctx.imageWidth / decoded.width);
+  // A size the picture was given (a header's logo) is kept; otherwise it is as big as it is, up to the text width.
+  const given = Number(node.attrs?.width) > 0 && Number(node.attrs?.height) > 0;
+  const scale = Math.min(1, ctx.imageWidth / (given ? Number(node.attrs!.width) : decoded.width));
+  const width = given ? Number(node.attrs!.width) : decoded.width;
+  const height = given ? Number(node.attrs!.height) : decoded.height;
   return new ImageRun({
     type: decoded.type,
     data: decoded.data,
-    transformation: { width: Math.round(decoded.width * scale), height: Math.max(1, Math.round(decoded.height * scale)) },
+    transformation: { width: Math.round(width * scale), height: Math.max(1, Math.round(height * scale)) },
     altText: alt ? { description: alt } : undefined,
+    ...(float && {
+      floating: {
+        horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: 0 },
+        verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: 0 },
+        wrap: { type: TextWrappingType.SQUARE, side: TextWrappingSide.RIGHT },
+      },
+    }),
   });
 }

@@ -187,6 +187,17 @@ button,textarea{font-family:inherit}
 .hf-flow-bottom{margin-top:24px}
 .paper.paged .hf-flow{position:absolute;left:var(--pad-x);right:var(--pad-x);top:0;margin:0;visibility:hidden}
 .paper.paged .hf-flow-bottom{top:auto;bottom:0}
+/* editing one: a double-click in a sheet's margin (.hf-hit, above the text) opens an editor over that sheet's copy */
+.hf-hits{position:absolute;inset:0;z-index:2;pointer-events:none}
+.hf-hit{position:absolute;left:0;right:0;height:var(--pad-y);pointer-events:auto;cursor:text;border-radius:6px}
+.hf-hit-bottom{transform:translateY(-100%)}
+.hf-hit:hover{box-shadow:inset 0 0 0 1px var(--line2)}
+.hf-sheet-top.editing,.hf-sheet-bottom.editing{visibility:hidden}
+.hf-editor{position:absolute;left:var(--pad-x);right:var(--pad-x);z-index:3;pointer-events:auto;background:var(--surface);outline:1px dashed var(--accent-ink);outline-offset:6px}
+.hf-editor-footer{transform:translateY(-100%)}
+.hf-editor .ProseMirror{outline:none;caret-color:var(--accent-ink)}
+.hf-editor .hf-tag{position:absolute;left:-6px;top:-30px}
+.hf-editor-footer .hf-tag{top:auto;bottom:-30px}
 .comments-rail{width:0;flex-shrink:0;position:relative;align-self:stretch;overflow:hidden;visibility:hidden;transition:width var(--panel-ms) var(--panel-curve),visibility 0s linear var(--panel-ms)}
 /* the width takes in the gap between the page and the cards, so the page glides as the rail opens */
 .comments-rail.open{width:calc(var(--comments-w) + var(--comments-gap));visibility:visible;transition:width var(--panel-ms) var(--panel-curve),visibility 0s}
@@ -320,6 +331,7 @@ button,textarea{font-family:inherit}
   .doc [data-page-break]::before,.doc [data-page-break]::after,.doc [data-page-break] span{display:none}
   .doc img[data-cover]{width:100%;height:auto;margin:0;border-radius:0;break-after:page}
   .paper.paged .hf-flow{position:static;visibility:visible}
+  .hf-hits,.hf-editor{display:none!important}
   .hf-flow-top{margin-bottom:16px}
   .hf-flow-bottom{margin-top:16px}
   .doc .tableWrapper{overflow:visible}

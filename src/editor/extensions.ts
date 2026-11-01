@@ -49,8 +49,9 @@ const CoverImage = Image.extend({
 });
 
 // The one schema every part of DocBro shares: the editor, the headless
-// conversions (docx, Markdown, MCP tools) and the tests.
-export function createExtensions(): Extensions {
+// conversions (docx, Markdown, MCP tools) and the tests. `trailingNode: false` is for
+// an editor whose last block is the writer's own, such as a header (layout/PartEditor.tsx).
+export function createExtensions({ trailingNode = true }: { trailingNode?: boolean } = {}): Extensions {
   return [
     StarterKit.configure({
       code: false,
@@ -61,6 +62,7 @@ export function createExtensions(): Extensions {
       heading: { levels: [1, 2, 3] },
       // a click on a link puts the caret in it; opening it would navigate the window away from the document
       link: { openOnClick: false },
+      ...(!trailingNode && { trailingNode: false }),
     }),
     // ⇧⌘X, as in the Format menu; StarterKit's ⇧⌘S would strike the selection on its way to Save As
     Strike.extend({
