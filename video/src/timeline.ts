@@ -10,6 +10,9 @@ const TAIL = 15;
 // Frames each scene overlaps the next, for the cross-fade.
 export const OVERLAP = 14;
 const EXTRA: Record<string, number> = { hook: 8, ai: 6, outro: 66 };
+// The cold open: the finished intro lock-up, held and then cross-faded into the
+// hook, so the first frame (what players show before you press play) is not black.
+export const POSTER = 30;
 
 export interface Word {
   text: string;
@@ -27,7 +30,7 @@ export interface Scene {
 }
 
 export const scenes: Scene[] = [];
-let cursor = 0;
+let cursor = POSTER - OVERLAP;
 for (const line of voiceover.lines) {
   const voiceFrames = Math.ceil(line.seconds * FPS);
   const length = LEAD + voiceFrames + TAIL + (EXTRA[line.id] ?? 0);

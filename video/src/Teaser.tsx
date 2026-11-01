@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Freeze, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import "./fonts";
 import { Ai } from "./scenes/Ai";
 import { Files } from "./scenes/Files";
@@ -9,7 +9,7 @@ import { Outro } from "./scenes/Outro";
 import { Undo } from "./scenes/Undo";
 import { Write } from "./scenes/Write";
 import { C } from "./theme";
-import { cue, LEAD, OVERLAP, scene, scenes, speaking } from "./timeline";
+import { cue, LEAD, OVERLAP, POSTER, scene, scenes, speaking } from "./timeline";
 import { clamp } from "./ui";
 
 const VIEWS: Record<string, React.FC> = { hook: Hook, intro: Intro, files: Files, write: Write, ai: Ai, undo: Undo, outro: Outro };
@@ -44,11 +44,18 @@ export const Teaser: React.FC = () => {
   const { durationInFrames } = useVideoConfig();
   return (
     <AbsoluteFill style={{ background: C.night }}>
+      <Sequence name="poster" durationInFrames={POSTER}>
+        <Transition first last={false}>
+          <Freeze frame={scene("intro").length - 1}>
+            <Intro />
+          </Freeze>
+        </Transition>
+      </Sequence>
       {scenes.map((s, i) => {
         const View = VIEWS[s.id];
         return (
           <Sequence key={s.id} name={s.id} from={s.start} durationInFrames={s.length}>
-            <Transition first={i === 0} last={i === scenes.length - 1}>
+            <Transition first={false} last={i === scenes.length - 1}>
               <View />
             </Transition>
             <Sequence from={LEAD} layout="none" name={`voice: ${s.id}`}>
@@ -66,7 +73,7 @@ export const Teaser: React.FC = () => {
         }
       />
 
-      {scenes.slice(1).map((s) => (
+      {scenes.map((s) => (
         <Sfx key={s.id} name="whoosh" at={s.start - 6} volume={0.18} />
       ))}
       <Sfx name="chime" at={at("intro", "DocBro", -6)} volume={0.22} />
