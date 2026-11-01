@@ -361,7 +361,6 @@ impl Servers {
     /// The tools of every enabled server, or of server `only`, connecting to them as needed
     /// (all at once). A server that fails is skipped, shows the error in its status, and is
     /// tried again after `RETRY_AFTER`.
-    #[allow(dead_code)] // the Assistant's chat loop (Task 16) calls it
     pub fn tools_for(&self, only: Option<&str>) -> Vec<(String, ToolInfo)> {
         let wanted = |e: &Entry| e.config.enabled && only.is_none_or(|id| id == e.config.id);
         let pending: Vec<String> = {
@@ -383,7 +382,6 @@ impl Servers {
 
     /// Calls a tool of an enabled server. When the connection fails (it timed out or the
     /// server went away), the server shows the error and reconnects on a later use.
-    #[allow(dead_code)] // the Assistant's chat loop (Task 16) calls it
     pub fn call(&self, server_id: &str, tool: &str, args: &Value) -> Result<ToolOutput, String> {
         let live = self.connect(server_id, true)?;
         let result = live.lock_recovering().call_tool(tool, args);

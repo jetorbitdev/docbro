@@ -44,4 +44,21 @@ describe("api", () => {
     await api.mcpRegenerateToken();
     expect(invoke).toHaveBeenLastCalledWith("mcp_regenerate_token");
   });
+
+  it("passes the assistant settings and messages by the names Rust expects", async () => {
+    invoke.mockResolvedValue(undefined);
+    await api.assistantSave(null, "claude-sonnet-5-5");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_save", { apiKey: null, model: "claude-sonnet-5-5" });
+    await api.assistantSend("Summarize", "the selection", "docbro", false);
+    expect(invoke).toHaveBeenLastCalledWith("assistant_send", {
+      text: "Summarize",
+      context: "the selection",
+      only: "docbro",
+      excludeBuiltin: false,
+    });
+    await api.assistantCancel();
+    expect(invoke).toHaveBeenLastCalledWith("assistant_cancel");
+    await api.assistantReset();
+    expect(invoke).toHaveBeenLastCalledWith("assistant_reset");
+  });
 });

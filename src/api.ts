@@ -44,6 +44,24 @@ export interface McpStatus {
   error: string | null;
 }
 
+/** The Assistant's settings as the webview may know them: the API key's last four characters, never the key. */
+export interface AssistantStatus {
+  configured: boolean;
+  key_hint: string | null;
+  model: string;
+}
+
+/**
+ * The `assistant-event` Rust sends to the window that asked. `args` is the tool's arguments as
+ * JSON cut to 200 characters, `text` its answer cut to 400. A message ends with `done` or `error`.
+ */
+export type AssistantEvent =
+  | { type: "text"; delta: string }
+  | { type: "tool_start"; id: string; server: string; name: string; args: string }
+  | { type: "tool_end"; id: string; ok: boolean; text: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
 /** Wrappers for the Rust commands, so no other file spells a command name or its arguments. */
 export const api = {
   /** Rejects with "Not found" when the file does not exist. */
@@ -86,4 +104,21 @@ export const api = {
     invoke<ServerView[]>("servers_set_enabled", { id, enabled }),
   /** Connects without saving; resolves to the server's tool names. */
   serversTest: (config: ServerConfig) => invoke<string[]>("servers_test", { config }),
+  assistantStatus: () => invoke<AssistantStatus>("assistant_status"),
+  /** `apiKey` null keeps the saved key. Rejects when `model` is empty. */
+  assistantSave: (apiKey: string | null, model: string) =>
+    invoke<AssistantStatus>("assistant_save", { apiKey, model }),
+  assistantClearKey: () => invoke<AssistantStatus>("assistant_clear_key"),
+  /**
+   * Resolves at once; the answer comes as `assistant-event`s to this window. `context` is the
+   * selected text, `only` the server id of an @mention, `excludeBuiltin` true when the built-in
+   * document server is switched off. Rejects while this window's chat is still answering, or
+   * when no API key is saved.
+   */
+  assistantSend: (text: string, context: string | null, only: string | null, excludeBuiltin: boolean) =>
+    invoke<void>("assistant_send", { text, context, only, excludeBuiltin }),
+  /** Stops the answer; it still ends with `done`. */
+  assistantCancel: () => invoke<void>("assistant_cancel"),
+  /** Drops this window's conversation and stops its answer, which then sends nothing more. */
+  assistantReset: () => invoke<void>("assistant_reset"),
 };

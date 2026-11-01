@@ -1,3 +1,4 @@
+mod assistant;
 mod calls;
 mod files;
 mod mcp;
@@ -57,6 +58,8 @@ struct AppState {
     calls: calls::Calls,
     /// The user's MCP servers for the Assistant, and their live connections
     servers: servers::Servers,
+    /// The Assistant's settings and the chat of each window
+    assistant: assistant::Assistant,
 }
 
 impl AppState {
@@ -68,6 +71,7 @@ impl AppState {
             mcp: Mutex::new(mcp::Runtime::load()),
             calls: calls::Calls::default(),
             servers: servers::Servers::load(),
+            assistant: assistant::Assistant::load(),
         }
     }
 
@@ -451,7 +455,10 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             if payload.event() == PageLoadEvent::Started {
                 let state = webview.state::<AppState>();
-                page_reloading(&state.windows, &state.calls, webview.window().label());
+                let label = webview.window().label().to_string();
+                page_reloading(&state.windows, &state.calls, &label);
+                // the page's chat starts empty, so the conversation behind it goes too
+                state.assistant.reset(&label);
             }
         })
         .on_window_event(|window, event| {
@@ -464,6 +471,7 @@ pub fn run() {
                     state.windows.lock_recovering().remove(label);
                     state.calls.fail_window(label);
                     state.pending_open.lock_recovering().remove(label);
+                    state.assistant.reset(label);
                     let mut active = state.active.lock_recovering();
                     if *active == label {
                         let others = window.webview_windows().into_keys().find(|l| l != label);
@@ -492,6 +500,12 @@ pub fn run() {
             servers::servers_remove,
             servers::servers_set_enabled,
             servers::servers_test,
+            assistant::assistant_status,
+            assistant::assistant_save,
+            assistant::assistant_clear_key,
+            assistant::assistant_send,
+            assistant::assistant_cancel,
+            assistant::assistant_reset,
         ])
         .build(tauri::generate_context!())
         .expect("error while building DocBro");

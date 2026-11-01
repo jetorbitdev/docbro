@@ -230,7 +230,7 @@ fn redact(text: &str, secrets: &[String]) -> String {
 }
 
 /// At most `max` characters of text a server sent.
-fn cut(text: &str, max: usize) -> String {
+pub(crate) fn cut(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
         Some((i, _)) => format!("{}…", &text[..i]),
         None => text.to_string(),
