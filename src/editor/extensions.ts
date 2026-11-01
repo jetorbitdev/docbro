@@ -1,4 +1,4 @@
-import type { Extensions } from "@tiptap/core";
+import { Extension, type Extensions } from "@tiptap/core";
 import { Highlight } from "@tiptap/extension-highlight";
 import { Image } from "@tiptap/extension-image";
 import { Strike } from "@tiptap/extension-strike";
@@ -7,6 +7,8 @@ import { TextAlign } from "@tiptap/extension-text-align";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
+import type { Spacing } from "../doc/meta";
+import { spacingStyle } from "../layout/look";
 import { inkOn, isAutomaticColor } from "./automaticColor";
 import { Field } from "./field";
 import { PageBreak } from "./pageBreak";
@@ -103,6 +105,42 @@ class IndentedTableView extends TableView {
   }
 }
 
+// The spacing a paragraph from a .docx has of its own, where it differs from the file's (doc/meta.ts `Spacing`, in twips),
+// and the indent of its first line.
+// The page draws it only for a document set as its file (layout/look.ts); a new line keeps it, as in Word.
+const ParagraphSpacing = Extension.create({
+  name: "paragraphSpacing",
+  addGlobalAttributes() {
+    return [{
+      types: ["paragraph", "heading"],
+      attributes: {
+        spacing: {
+          default: null,
+          parseHTML: (element: HTMLElement) => {
+            try {
+              const spacing = JSON.parse(element.getAttribute("data-spacing") ?? "null");
+              return spacing && typeof spacing === "object" ? spacing : null;
+            } catch {
+              return null;
+            }
+          },
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const spacing = attributes.spacing as Spacing | null;
+            return spacing ? { "data-spacing": JSON.stringify(spacing), style: spacingStyle(spacing) } : {};
+          },
+        },
+        // how far the first line is set in from the rest, in twips; a hanging one is less than 0
+        firstLine: {
+          default: null,
+          parseHTML: (element: HTMLElement) => Number(element.getAttribute("data-first-line")) || null,
+          renderHTML: (attributes: Record<string, unknown>) =>
+            attributes.firstLine ? { "data-first-line": attributes.firstLine, style: `--p-first: ${Number(attributes.firstLine) / 20}` } : {},
+        },
+      },
+    }];
+  },
+});
+
 // The one schema every part of DocBro shares: the editor, the headless
 // conversions (docx, Markdown, MCP tools) and the tests. `trailingNode: false` is for
 // an editor whose last block is the writer's own, such as a header (layout/PartEditor.tsx).
@@ -126,6 +164,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
       },
     }),
     TextAlign.configure({ types: ["heading", "paragraph"] }),
+    ParagraphSpacing,
     TextStyle,
     PastedColor,
     Highlight.configure({ multicolor: true }),

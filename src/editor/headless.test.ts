@@ -19,7 +19,7 @@ test("a_headless_editor_edits_and_reads_back_the_document", () => {
   expect(editor.getJSON().content![0].content![0].marks).toEqual([
     { type: "textStyle", attrs: expect.objectContaining({ color: "#112233" }) },
   ]);
-  expect(editor.getJSON().content![0].attrs).toEqual({ level: 2, textAlign: "center" });
+  expect(editor.getJSON().content![0].attrs).toEqual({ level: 2, textAlign: "center", spacing: null, firstLine: null });
   editor.destroy();
 });
 

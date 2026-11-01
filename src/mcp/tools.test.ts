@@ -317,7 +317,7 @@ test("markdown_is_conformed_like_the_importer_does", async () => {
 test("deleting_every_block_leaves_one_empty_paragraph", async () => {
   set("A\n\nB");
   expect(await ok("delete_blocks", { from: 1, to: 2 })).toBe("Deleted blocks 1–2.");
-  expect(top()).toEqual([{ type: "paragraph", attrs: { textAlign: null } }]);
+  expect(top()).toEqual([{ type: "paragraph", attrs: { textAlign: null, spacing: null, firstLine: null } }]);
   expect(blockCount(editor.state.doc)).toBe(1);
 });
 

@@ -1,7 +1,7 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
 import JSZip from "jszip";
-import { PAPER, TWIPS_PER_PX, emptyMeta, type DocMeta, type KeptPart, type PageSize } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, emptyMeta, type DocLook, type DocMeta, type KeptPart, type PageSize, type Spacing } from "../../doc/meta";
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
 import { MEDIA_TYPES } from "./media";
@@ -39,12 +39,17 @@ const HIGHLIGHT: Record<string, string> = {
 // Values come from the file, so never let one reach a prototype key ("constructor").
 const lookup = (table: Record<string, string>, key: string | null) => (key !== null && Object.hasOwn(table, key) ? table[key] : undefined);
 
-interface Style { name: string; basedOn: string | null; pPr: Element | null }
+interface Style { name: string; basedOn: string | null; pPr: Element | null; rPr: Element | null }
 interface Level { ordered: boolean; start: number; indent: number | null }
 interface Relation { target: string; external: boolean }
 
 interface Context {
   styles: Map<string, Style>;
+  normal: string | null; // the style of a paragraph that names none
+  defaults: { pPr: Element | null; rPr: Element | null }; // the document's (w:docDefaults), under every style
+  // The spacing of a paragraph that sets none, and of each heading level: what a paragraph's own is told against.
+  spacing: Spacing;
+  headings: Spacing[];
   nums: Map<string, Element>;
   abstracts: Map<string, Element>;
   links: Map<string, string>; // relationship id -> safe external URL
@@ -79,12 +84,17 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
   const body = is(root, "w:document") ? first(root, "w:body") : null;
   if (!body) throw new Error("This Word document is damaged: it has no body");
 
-  const [styles, numbering, rels] = await Promise.all(
-    ["word/styles.xml", "word/numbering.xml", "word/_rels/document.xml.rels"].map((path) => readXml(zip, path)),
+  const [styles, numbering, rels, theme] = await Promise.all(
+    ["word/styles.xml", "word/numbering.xml", "word/_rels/document.xml.rels", "word/theme/theme1.xml"].map((path) => readXml(zip, path)),
   );
   const relations = relationships(rels);
+  const defaults = first(styles?.documentElement ?? null, "w:docDefaults");
   const ctx: Context = {
     styles: readStyles(styles),
+    normal: defaultStyle(styles),
+    defaults: { pPr: first(defaults, "w:pPrDefault/w:pPr"), rPr: first(defaults, "w:rPrDefault/w:rPr") },
+    spacing: {},
+    headings: [],
     nums: byId(numbering, "w:num", "w:numId"),
     abstracts: byId(numbering, "w:abstractNum", "w:abstractNumId"),
     links: safeLinks(relations),
@@ -94,9 +104,12 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     page: pageEmu(lastSection(body)),
     textWidth: textWidthPx(lastSection(body)),
   };
+  ctx.spacing = spacingOf(ctx, null, null);
+  ctx.headings = [1, 2, 3].map((level) => spacingOf(ctx, null, headingStyle(ctx, level)));
   const doc = finish(trimCovers(blocks(body, ctx)));
   const meta = await readHeaderFooter(zip, body, relations, ctx);
   meta.pageSize = pageSizeOf(lastSection(body));
+  meta.look = lookOf(body, ctx, theme);
   return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
 }
 
@@ -485,7 +498,7 @@ function readStyles(doc: Document | null): Map<string, Style> {
   const styles = new Map<string, Style>();
   for (const style of children(doc?.documentElement, "w:style")) {
     const id = attr(style, "w:styleId");
-    if (id) styles.set(id, { name: attr(first(style, "w:name"), "w:val") ?? "", basedOn: attr(first(style, "w:basedOn"), "w:val"), pPr: first(style, "w:pPr") });
+    if (id) styles.set(id, { name: attr(first(style, "w:name"), "w:val") ?? "", basedOn: attr(first(style, "w:basedOn"), "w:val"), pPr: first(style, "w:pPr"), rPr: first(style, "w:rPr") });
   }
   return styles;
 }
@@ -509,6 +522,126 @@ function prop(ctx: Context, pPr: Element | null, styleId: string | null, path: s
   let found = first(pPr, path);
   for (const [, style] of chain(ctx, styleId)) found ??= first(style?.pPr, path);
   return found;
+}
+
+// The paragraph style Word gives a paragraph that names none ("Normal").
+function defaultStyle(doc: Document | null): string | null {
+  const style = children(doc?.documentElement, "w:style").find((s) => attr(s, "w:type") === "paragraph" && ["1", "true", "on"].includes(attr(s, "w:default") ?? ""));
+  return style ? attr(style, "w:styleId") : null;
+}
+
+const twips = (value: string | null) => (value === null || !Number.isFinite(parseFloat(value)) ? undefined : Math.round(parseFloat(value)));
+
+// Word's spacing of a paragraph, each attribute from the nearest of the paragraph, its style and the styles that one is
+// based on (Normal when it names none), and the document's defaults.
+function spacingOf(ctx: Context, pPr: Element | null, styleId: string | null): Spacing {
+  const sources = [
+    first(pPr, "w:spacing"),
+    ...[...chain(ctx, styleId ?? ctx.normal)].map(([, style]) => first(style?.pPr ?? null, "w:spacing")),
+    first(ctx.defaults.pPr, "w:spacing"),
+  ];
+  const nearest = (name: string) => sources.map((s) => attr(s, name)).find((v) => v !== null) ?? null;
+  const spacing: Spacing = {};
+  const before = twips(nearest("w:before"));
+  const after = twips(nearest("w:after"));
+  const line = twips(nearest("w:line"));
+  if (before !== undefined) spacing.before = before;
+  if (after !== undefined) spacing.after = after;
+  if (line !== undefined && line > 0) {
+    spacing.line = line;
+    const rule = nearest("w:lineRule");
+    spacing.lineRule = rule === "exact" || rule === "atLeast" ? rule : "auto";
+  }
+  return spacing;
+}
+
+// What of a paragraph's spacing differs from that of a paragraph of its kind that sets none (a heading of its level's
+// style, any other the Normal style); null when nothing does.
+function ownSpacing(ctx: Context, pPr: Element | null, styleId: string | null, kind: Kind): Spacing | null {
+  const spacing = spacingOf(ctx, pPr, styleId);
+  const base = kind.type === "heading" ? ctx.headings[kind.level - 1] ?? ctx.spacing : ctx.spacing;
+  const own: Spacing = {};
+  if ((spacing.before ?? 0) !== (base.before ?? 0)) own.before = spacing.before ?? 0;
+  if ((spacing.after ?? 0) !== (base.after ?? 0)) own.after = spacing.after ?? 0;
+  if (spacing.line !== base.line || spacing.lineRule !== base.lineRule) {
+    own.line = spacing.line ?? 240;
+    own.lineRule = spacing.lineRule ?? "auto";
+  }
+  return Object.keys(own).length ? own : null;
+}
+
+// A run property, set on the run or inherited from its character style, its paragraph's style, or the document's
+// defaults; with no run, what a run in a paragraph of that style has.
+function runProp(ctx: Context, r: Element | null, styleId: string | null, path: string): Element | null {
+  const rPr = first(r, "w:rPr");
+  let found = first(rPr, path);
+  for (const [, style] of chain(ctx, attr(first(rPr, "w:rStyle"), "w:val"))) found ??= first(style?.rPr ?? null, path);
+  for (const [, style] of chain(ctx, styleId ?? ctx.normal)) found ??= first(style?.rPr ?? null, path);
+  return found ?? first(ctx.defaults.rPr, path);
+}
+
+/**
+ * How the file sets its text (doc/meta.ts `DocLook`). The page has one size and one typeface for the text, so they are
+ * the ones most of the body's text (headings aside) is in, counted by the character.
+ */
+function lookOf(body: Element, ctx: Context, theme: Document | null): DocLook {
+  const sizes = new Map<number, number>();
+  const fonts = new Map<string, number>();
+  const count = <K,>(map: Map<K, number>, key: K, n: number) => map.set(key, (map.get(key) ?? 0) + n);
+  for (const p of descendants(body, "w:p")) {
+    const styleId = attr(first(first(p, "w:pPr"), "w:pStyle"), "w:val");
+    if (kindOf(ctx, styleId).type === "heading") continue;
+    for (const r of descendants(p, "w:r")) {
+      const chars = descendants(r, "w:t").reduce((n, t) => n + (t.textContent ?? "").length, 0);
+      if (!chars) continue;
+      const size = int(attr(runProp(ctx, r, styleId, "w:sz"), "w:val"));
+      if (size) count(sizes, size, chars);
+      const font = typeface(runProp(ctx, r, styleId, "w:rFonts"), theme);
+      if (font) count(fonts, font, chars);
+    }
+  }
+  const most = <K,>(map: Map<K, number>): K | null => [...map].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const size = most(sizes) ?? int(attr(runProp(ctx, null, null, "w:sz"), "w:val")) ?? 20;
+
+  const headingSize = (level: number) => {
+    for (const [, style] of chain(ctx, headingStyle(ctx, level))) {
+      const sz = int(attr(first(style?.rPr ?? null, "w:sz"), "w:val"));
+      if (sz) return sz;
+    }
+    return null;
+  };
+
+  const pgMar = first(lastSection(body), "w:pgMar");
+  const margin = (side: string, fallback: number) => Math.max(0, twips(attr(pgMar, side)) ?? fallback);
+  return {
+    font: most(fonts) ?? typeface(runProp(ctx, null, null, "w:rFonts"), theme),
+    size,
+    spacing: ctx.spacing,
+    headings: [1, 2, 3].map((level) => ({ size: headingSize(level), spacing: ctx.headings[level - 1] })),
+    margins: {
+      top: margin("w:top", 1440), right: margin("w:right", 1440), bottom: margin("w:bottom", 1440), left: margin("w:left", 1440),
+      header: margin("w:header", 720), footer: margin("w:footer", 720),
+    },
+  };
+}
+
+// The style of a heading of `level`: the file's own ("Heading1", or one named "heading 1"), else Word's id for it.
+function headingStyle(ctx: Context, level: number): string {
+  const found = [...ctx.styles].find(([id, style]) => {
+    const kind = builtIn(id) ?? builtIn(style.name);
+    return kind?.type === "heading" && kind.level === level && !/title/i.test(id + style.name);
+  });
+  return found?.[0] ?? `Heading${level}`;
+}
+
+// A run's typeface: named, or one of the theme's two (body and headings).
+function typeface(rFonts: Element | null, theme: Document | null): string | null {
+  const named = attr(rFonts, "w:ascii") ?? attr(rFonts, "w:hAnsi");
+  if (named) return named;
+  const themed = attr(rFonts, "w:asciiTheme") ?? attr(rFonts, "w:hAnsiTheme");
+  if (!themed) return null;
+  const scheme = theme ? descendants(theme, themed.startsWith("major") ? "a:majorFont" : "a:minorFont")[0] : null;
+  return attr(first(scheme, "a:latin"), "typeface") || null;
 }
 
 type Kind = { type: "heading"; level: number } | { type: "paragraph" | "quote" };
@@ -665,10 +798,15 @@ function paragraph(p: Element, ctx: Context): Item[] {
   const ilvl = int(attr(prop(ctx, pPr, styleId, "w:numPr/w:ilvl"), "w:val")) ?? 0;
   const list = kind.type !== "heading" && numId && level(ctx, numId, ilvl) ? { numId, ilvl } : undefined;
   const indent = kind.type === "paragraph" ? indentOf(prop(ctx, pPr, styleId, "w:ind")) : undefined;
+  const spacing = ownSpacing(ctx, pPr, styleId, kind);
+  // A first line set in (or out, hanging) from the rest; a list item's comes from its numbering, not from here.
+  const ind = prop(ctx, pPr, styleId, "w:ind");
+  const firstLine = list ? 0 : (twips(attr(ind, "w:firstLine")) ?? 0) - (twips(attr(ind, "w:hanging")) ?? 0);
+  const own = { ...(spacing && { spacing }), ...(firstLine && { firstLine }) };
   const textBlock = (content: JSONContent[]): JSONContent =>
     kind.type === "heading"
-      ? { type: "heading", attrs: { level: kind.level, textAlign }, content }
-      : { type: "paragraph", attrs: { textAlign }, content };
+      ? { type: "heading", attrs: { level: kind.level, textAlign, ...own }, content }
+      : { type: "paragraph", attrs: { textAlign, ...own }, content };
 
   // A picture, rule or page break is a block in DocBro, so it splits the paragraph around it.
   const items: Item[] = [];
@@ -933,7 +1071,7 @@ function tableIndent(tbl: Element, grid: number[] | null, textWidth: number): nu
     ? attr(float, "w:horzAnchor") !== "page" && !attr(float, "w:tblpXSpec") ? Number(attr(float, "w:tblpX")) : 0
     : (attr(ind, "w:type") ?? "dxa") === "dxa" ? Number(attr(ind, "w:w")) : 0;
   const room = textWidth - grid.reduce((sum, w) => sum + w, 0);
-  return Math.max(0, Math.min(room, Math.round((twips || 0) / TWIPS_PER_PX)));
+  return Math.max(0, Math.floor(Math.min(room, (twips || 0) / TWIPS_PER_PX)));
 }
 
 // A cover ends its page, so what Word needed to get the text below its artwork is not kept: the blank

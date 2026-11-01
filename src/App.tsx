@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
-import { PAPER, editWarning, zonePatch, zoneView, type Zone } from "./doc/meta";
+import { PAPER, TWIPS_PER_PX, editWarning, zonePatch, zoneView, type Zone } from "./doc/meta";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
@@ -338,6 +338,8 @@ export default function App() {
                 onPartChange={(kind, view) => session?.setMeta(zonePatch(kind, view))}
                 onEditEnd={endPartEdit}
                 onEditor={setZoneEditor}
+                look={session?.meta.look}
+                paperWidth={paperSize.width / TWIPS_PER_PX}
                 paperRef={setPaper}
               >
                 <SelectionBubble

@@ -1,7 +1,8 @@
 import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent } from "@tiptap/react";
-import { useState, type CSSProperties, type ReactNode, type Ref } from "react";
-import type { Zone } from "../doc/meta";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import type { DocLook, Zone } from "../doc/meta";
+import { lookStyle } from "./look";
 import { PartEditor } from "./PartEditor";
 import { PartView } from "./PartView";
 import type { PageLayout } from "./pages";
@@ -23,6 +24,10 @@ interface Props {
   onEditEnd?(): void;
   /** The header or footer editor while there is one, so that the menus and the dock act on it; null after. */
   onEditor?(editor: Editor | null): void;
+  /** How the file sets its text, for a document from a .docx (layout/look.ts); without it the page has DocBro's own type. */
+  look?: DocLook | null;
+  /** The paper's width in px at 96 dpi: what the sheet on screen is a scale of. */
+  paperWidth?: number;
   /** Overlays positioned against the paper: selection bubble, slash menu (Task 8). */
   children?: ReactNode;
   paperRef?: Ref<HTMLDivElement>;
@@ -32,13 +37,33 @@ const NAMES = { header: "header", footer: "footer" } as const;
 
 /** Mock 133–182: the 780px page. It is `position: relative`, so overlays can sit on it. */
 export function Paper(props: Props) {
-  const { editor, large, layout, headerView, footerView, editing, onEdit, onPartChange, onEditEnd, onEditor, children, paperRef } = props;
+  const { editor, large, layout, headerView, footerView, editing, onEdit, onPartChange, onEditEnd, onEditor, children, paperRef, look, paperWidth } = props;
   // How tall the header and footer are drawn: the margins of a sheet grow to hold them (styles.css reads these).
   const [headerHeight, setHeaderHeight] = useState(0);
   const [footerHeight, setFooterHeight] = useState(0);
+  // The sheet on screen as a scale of the paper, which a document set as its file sizes everything by.
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    if (!element || !look || !paperWidth || typeof ResizeObserver === "undefined") return;
+    const measure = () => element.clientWidth && setScale(element.clientWidth / paperWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, look, paperWidth]);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      setElement(el);
+      if (typeof paperRef === "function") paperRef(el);
+      else if (paperRef) paperRef.current = el;
+    },
+    [paperRef],
+  );
 
   // The text is one flow; the sheets are drawn behind it, and the paper is tall enough for all of them.
   const style = {
+    ...(look && paperWidth && lookStyle(look, scale, paperWidth)),
     ...(layout && { minHeight: layout.pages * layout.pageHeight + (layout.pages - 1) * layout.gap, "--page-h": `${layout.pageHeight}px` }),
     ...(headerView && { "--hf-h": `${Math.ceil(headerHeight)}px` }),
     ...(footerView && { "--hf-fh": `${Math.ceil(footerHeight)}px` }),
@@ -56,7 +81,7 @@ export function Paper(props: Props) {
   );
 
   return (
-    <div className={`paper${layout ? " paged" : ""}`} ref={paperRef} style={style}>
+    <div className={`paper${layout ? " paged" : ""}${look ? " look" : ""}`} ref={ref} style={style}>
       {layout && (
         <div className="sheets" aria-hidden="true">
           {Array.from({ length: pages }, (_, i) => (

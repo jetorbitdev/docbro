@@ -155,6 +155,20 @@ button,textarea{font-family:inherit}
 .doc [data-page-break]::before,.doc [data-page-break]::after{content:"";flex:1;border-top:1px dashed var(--line2)}
 .doc [data-page-break].ProseMirror-selectednode{color:var(--accent-ink)}
 .doc [data-page-break].ProseMirror-selectednode::before,.doc [data-page-break].ProseMirror-selectednode::after{border-top-color:var(--accent-ink)}
+/* a document set as its file (layout/look.ts): its type, spacing and margins at the sheet's scale, so its pages break where
+   Word's do. Spacing is padding: Word adds one paragraph's space after to the next one's space before, where margins would overlap. */
+.paper.look .doc{font-family:var(--look-font,var(--doc-font));font-size:var(--look-size);line-height:var(--look-line)}
+.paper.look .doc :is(p,h1,h2,h3){margin:0;letter-spacing:normal;text-indent:calc(var(--p-first,0)*var(--pt));padding:calc(var(--p-before,var(--h-before,var(--look-before)))*var(--pt)) 0 calc(var(--p-after,var(--h-after,var(--look-after)))*var(--pt));line-height:var(--p-line,var(--h-line,var(--look-line)))}
+.paper.look .doc h1{font-size:var(--look-h1,2em);--h-before:var(--look-h1-before);--h-after:var(--look-h1-after);--h-line:var(--look-h1-line)}
+.paper.look .doc h2{font-size:var(--look-h2,1.5em);--h-before:var(--look-h2-before);--h-after:var(--look-h2-after);--h-line:var(--look-h2-line)}
+.paper.look .doc h3{font-size:var(--look-h3,1.17em);--h-before:var(--look-h3-before);--h-after:var(--look-h3-after);--h-line:var(--look-h3-line)}
+.paper.look .doc :is(ul,ol){margin:0}
+.paper.look .doc li{margin:0}
+.paper.look .doc table{font:inherit;margin:0}
+/* scaled down in a narrow window, a table keeps the file's widths and runs into the margin rather than being cut off */
+.paper.look .doc .tableWrapper{overflow:visible}
+.paper.look .doc :is(td,th){padding:calc(5*var(--pt)) calc(5.4*var(--pt))}
+.paper.look .doc th{font:inherit;color:inherit;background:none}
 /* pages: the text is one flow, a spacer (.page-gap) sits where a page ends, and the sheets are drawn behind it */
 .paper.paged{background:none;border-color:transparent;box-shadow:none;border-radius:0;padding-bottom:var(--pad-y)}
 .sheets{position:absolute;inset:0;pointer-events:none}

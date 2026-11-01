@@ -224,3 +224,18 @@ test("the_caret_starts_at_the_end_of_the_last_line_of_text_even_when_a_rule_come
   expect(selection.$from.parent.textContent).toBe("PT Jetorbit");
   expect(selection.$from.parentOffset).toBe("PT Jetorbit".length);
 });
+
+test("a_document_from_a_docx_is_set_as_its_file_sets_it_and_one_without_a_look_in_docbros_type", () => {
+  const look = {
+    font: "Arial", size: 24, spacing: { line: 276, lineRule: "auto" as const },
+    headings: [{ size: null, spacing: {} }, { size: null, spacing: {} }, { size: null, spacing: {} }],
+    margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 },
+  };
+  show(LAYOUT, { look, paperWidth: 794 });
+  expect(paper().classList.contains("look")).toBe(true);
+  expect([paper().style.getPropertyValue("--paper-max"), paper().style.getPropertyValue("--look-size"), paper().style.getPropertyValue("--pad-x")])
+    .toEqual(["796px", "16px", "96px"]); // the paper's own width, 12pt and an inch at full size
+  show(LAYOUT);
+  expect(paper().classList.contains("look")).toBe(false);
+  expect(paper().style.getPropertyValue("--look-size")).toBe("");
+});

@@ -37,6 +37,34 @@ export interface KeptPart {
   editLoses?: "other_content"[];
 }
 
+/**
+ * Word's paragraph spacing, in twips: the space before and after, and the line, as 240ths of the font's single line
+ * (`auto`) or as a height (`exact`, `atLeast`).
+ */
+export interface Spacing {
+  before?: number;
+  after?: number;
+  line?: number;
+  lineRule?: "auto" | "exact" | "atLeast";
+}
+
+/**
+ * How the file sets its text, which the page follows so that its pages break where Word's and Google Docs' do
+ * (layout/look.ts). A document DocBro made has none, and the page has DocBro's own type.
+ */
+export interface DocLook {
+  /** The typeface most of the text is in; null when the file does not say. */
+  font: string | null;
+  /** The size most of the text is, in half-points as Word writes `w:sz`. */
+  size: number;
+  /** The spacing of a paragraph that sets none of its own (`spacing` on a paragraph is what differs from this). */
+  spacing: Spacing;
+  /** Heading 1 to 3: their size in half-points (null for one the file does not size) and their spacing. */
+  headings: { size: number | null; spacing: Spacing }[];
+  /** The page's margins, and how far the header and footer are from its edges, in twips. */
+  margins: { top: number; right: number; bottom: number; left: number; header: number; footer: number };
+}
+
 export interface DocMeta {
   comments: CommentData[];
   header: string | null;
@@ -46,10 +74,11 @@ export interface DocMeta {
   /** Set instead of `header` / `footer` when the file's one does not fit a line. Never both. */
   headerPart: KeptPart | null;
   footerPart: KeptPart | null;
+  look: DocLook | null;
 }
 
 export const emptyMeta = (): DocMeta => ({
-  comments: [], header: null, footer: null, pageNumbers: false, pageSize: "letter", headerPart: null, footerPart: null,
+  comments: [], header: null, footer: null, pageNumbers: false, pageSize: "letter", headerPart: null, footerPart: null, look: null,
 });
 
 /** The text of a kept part, one line per block; null when there is no part. */

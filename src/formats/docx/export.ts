@@ -11,6 +11,7 @@ import {
   HorizontalPositionRelativeFrom,
   ImageRun,
   LevelFormat,
+  LineRuleType,
   Packer,
   PageBreak,
   PageNumber,
@@ -33,9 +34,10 @@ import {
   convertToXmlComponent,
   type ILevelsOptions,
   type IParagraphOptions,
+  type ISpacingProperties,
   type XmlElement,
 } from "docx";
-import { PAPER, TWIPS_PER_PX, type DocMeta, type KeptPart } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, type DocLook, type DocMeta, type KeptPart, type Spacing } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
 import { MEDIA_TYPES } from "./media";
 
@@ -71,7 +73,9 @@ interface Context {
 // part the file came with is written back as it was, after the package is made.
 export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint8Array> {
   const paper = PAPER[meta?.pageSize ?? "letter"];
-  const ctx: Context = { nextInstance: 0, starts: new Set([1]), imageWidth: (paper.width - 2 * MARGIN) / TWIPS_PER_PX,
+  const look = meta?.look ?? null;
+  const margin = look?.margins ?? { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN, header: 720, footer: 720 };
+  const ctx: Context = { nextInstance: 0, starts: new Set([1]), imageWidth: (paper.width - margin.left - margin.right) / TWIPS_PER_PX,
     page: { width: paper.width / TWIPS_PER_PX, height: paper.height / TWIPS_PER_PX },
   };
   const children: Block[] = blocks(doc.content, ctx);
@@ -92,12 +96,20 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
   const file = new Document({
     creator: "DocBro",
     styles: {
-      default: {
-        document: { run: { font: "Calibri", size: 22 }, paragraph: { spacing: { after: 160, line: 276 } } },
-        heading1: { run: { size: 40, bold: true }, paragraph: { spacing: { before: 360, after: 120 } } },
-        heading2: { run: { size: 32, bold: true }, paragraph: { spacing: { before: 280, after: 100 } } },
-        heading3: { run: { size: 26, bold: true }, paragraph: { spacing: { before: 240, after: 80 } } },
-      },
+      // A document from a .docx is written with the file's own type and spacing (doc/meta.ts `DocLook`), DocBro's otherwise.
+      default: look
+        ? {
+            document: { run: { font: look.font ?? "Calibri", size: look.size }, paragraph: { spacing: spacingOf(look.spacing) } },
+            heading1: headingStyle(look.headings[0], 40),
+            heading2: headingStyle(look.headings[1], 32),
+            heading3: headingStyle(look.headings[2], 26),
+          }
+        : {
+            document: { run: { font: "Calibri", size: 22 }, paragraph: { spacing: { after: 160, line: 276 } } },
+            heading1: { run: { size: 40, bold: true }, paragraph: { spacing: { before: 360, after: 120 } } },
+            heading2: { run: { size: 32, bold: true }, paragraph: { spacing: { before: 280, after: 100 } } },
+            heading3: { run: { size: 26, bold: true }, paragraph: { spacing: { before: 240, after: 80 } } },
+          },
       paragraphStyles: [
         {
           id: "Quote",
@@ -121,7 +133,7 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
     },
     sections: [
       {
-        properties: { page: { size: paper, margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN } } },
+        properties: { page: { size: paper, margin } },
         ...(header && { headers: { default: header } }),
         ...(footer && { footers: { default: footer } }),
         children,
@@ -270,7 +282,26 @@ function block(node: JSONContent, ctx: Context, quoted: boolean, lead: Inline[] 
 
 function paragraph(node: JSONContent, ctx: Context, options: IParagraphOptions = {}, lead: Inline[] = []): Paragraph {
   const align = ALIGNMENT[node.attrs?.textAlign as keyof typeof ALIGNMENT];
-  return new Paragraph({ ...options, alignment: align, children: [...lead, ...inline(node.content, ctx)] });
+  const spacing = node.attrs?.spacing ? spacingOf(node.attrs.spacing as Spacing) : undefined;
+  const first = Number(node.attrs?.firstLine) || 0;
+  const indent = first ? { ...options.indent, ...(first > 0 ? { firstLine: first } : { hanging: -first }) } : options.indent;
+  return new Paragraph({ ...options, alignment: align, ...(spacing && { spacing }), ...(indent && { indent }), children: [...lead, ...inline(node.content, ctx)] });
+}
+
+const LINE_RULES = { auto: LineRuleType.AUTO, exact: LineRuleType.EXACT, atLeast: LineRuleType.AT_LEAST } as const;
+
+// Spacing as `docx` takes it: the same twips, and the line's rule by its name in the library.
+function spacingOf(spacing: Spacing): ISpacingProperties {
+  return {
+    before: spacing.before,
+    after: spacing.after,
+    ...(spacing.line !== undefined && { line: spacing.line, lineRule: LINE_RULES[spacing.lineRule ?? "auto"] }),
+  };
+}
+
+// A heading level of a document from a .docx: its size as the file had it (else DocBro's), bold, and its spacing.
+function headingStyle(heading: DocLook["headings"][number] | undefined, size: number) {
+  return { run: { size: heading?.size ?? size, bold: true }, paragraph: { spacing: spacingOf(heading?.spacing ?? {}) } };
 }
 
 function list(node: JSONContent, ctx: Context, depth: number): Block[] {
