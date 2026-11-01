@@ -105,7 +105,7 @@ pub struct TauriHost(pub AppHandle);
 impl Host for TauriHost {
     fn call(&self, name: &str, args: &Value) -> Result<String, String> {
         let label = self.0.state::<AppState>().active_label();
-        calls::call_in_window(&self.0, &label, name, args)
+        calls::call_in_window(&self.0, &label, name, args, calls::Origin::External)
     }
 }
 

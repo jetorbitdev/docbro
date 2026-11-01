@@ -40,8 +40,8 @@ let replies: Reply[];
 let stop: (() => void) | undefined;
 const ctx = (): ToolContext => ({ editor, session });
 const later = () => Date.now() + 30_000;
-const call = (id: number, name: string, args: unknown = {}, deadline = later()) =>
-  emit("mcp-call", { id, name, args, deadline });
+const call = (id: number, name: string, args: unknown = {}, deadline = later(), origin = "external") =>
+  emit("mcp-call", { id, name, args, deadline, origin });
 const answered = (n: number) => vi.waitFor(() => expect(replies).toHaveLength(n));
 
 beforeEach(() => {
@@ -129,6 +129,17 @@ test("records_every_call_in_the_activity_feed", async () => {
     { tool: "insert_content", args: '{"markdown":"Hello"}', state: "done" },
     { tool: "delete_blocks", args: '{"from":9}', state: "error", message: replies[1].text },
   ]);
+});
+
+test("the_assistants_own_calls_run_but_stay_out_of_the_activity_feed", async () => {
+  stop = await startBridge(ctx);
+  // the chat shows these as its own tool cards
+  await call(1, "insert_content", { markdown: "From the chat" }, later(), "assistant");
+  await call(2, "document_info");
+  await answered(2);
+  expect(replies[0]).toMatchObject({ id: 1, ok: true });
+  expect(editor.getText().trim()).toBe("From the chat");
+  expect(activity.list()).toMatchObject([{ tool: "document_info", state: "done" }]);
 });
 
 test("stops_listening_when_unlistened", async () => {

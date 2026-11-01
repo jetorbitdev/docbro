@@ -1,7 +1,7 @@
 //! Tool calls that Rust forwards to a document window, and the answers that come back.
 //!
-//! The document lives in the webview's editor, so a tool call (from an MCP client, or later
-//! from DocBro's own assistant) becomes an `mcp-call` event `{ id, name, args }` sent to one
+//! The document lives in the webview's editor, so a tool call (from an MCP client, or from
+//! DocBro's own assistant) becomes an `mcp-call` event `{ id, name, args, origin }` sent to one
 //! window. The window runs the tool as one editor transaction and answers with the
 //! `mcp_reply` command. The caller waits on a channel with no lock held, so a slow answer
 //! never holds up window events, `editor_ready` or the answer itself.
@@ -35,6 +35,23 @@ const DEADLINE_MARGIN: Duration = Duration::from_secs(2);
 const TIMED_OUT: &str = "DocBro did not answer in time. Is a dialog open in the document window?";
 const CLOSED: &str = "The document window was closed.";
 const NOT_READY: &str = "The DocBro window did not finish opening in time. Try again in a moment.";
+
+/// Who made a tool call. The window lists external clients' calls in its activity feed; the
+/// assistant's own show up in its chat instead.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Origin {
+    External,
+    Assistant,
+}
+
+impl Origin {
+    fn as_str(self) -> &'static str {
+        match self {
+            Origin::External => "external",
+            Origin::Assistant => "assistant",
+        }
+    }
+}
 
 /// Calls waiting for their answer: id → (window label, where the answer goes)
 type Waiting = HashMap<u64, (String, mpsc::Sender<Reply>)>;
@@ -113,13 +130,13 @@ fn is_ready(state: &AppState, label: &str) -> bool {
     state.windows.lock_recovering().get(label).is_some_and(|d| d.ready)
 }
 
-/// The `mcp-call` event: `{ id, name, args, deadline }`. `deadline` (Unix time in ms) comes
+/// The `mcp-call` event: `{ id, name, args, origin, deadline }`. `deadline` (Unix time in ms) comes
 /// `DEADLINE_MARGIN` before Rust stops waiting, and the window refuses a call it would start
 /// after it. A call the client was told timed out is then never applied behind its back, where
 /// a retry of a tool such as `insert_content` would apply it twice.
-fn call_payload(id: u64, name: &str, args: &Value, now_ms: u64, timeout: Duration) -> Value {
+fn call_payload(id: u64, name: &str, args: &Value, origin: Origin, now_ms: u64, timeout: Duration) -> Value {
     let wait_ms = u64::try_from(timeout.saturating_sub(DEADLINE_MARGIN).as_millis()).unwrap_or(u64::MAX);
-    json!({ "id": id, "name": name, "args": args, "deadline": now_ms.saturating_add(wait_ms) })
+    json!({ "id": id, "name": name, "args": args, "origin": origin.as_str(), "deadline": now_ms.saturating_add(wait_ms) })
 }
 
 /// Runs tool `name` in window `label` and returns its answer. With no such window, it opens
@@ -128,7 +145,7 @@ fn call_payload(id: u64, name: &str, args: &Value, now_ms: u64, timeout: Duratio
 /// This blocks for up to `READY_TIMEOUT + CALL_TIMEOUT`, so it must run on a thread of its
 /// own (the MCP server gives every request one), never on the main thread: the window's
 /// answer and its `editor_ready` come in through commands that the main thread runs.
-pub fn call_in_window(app: &AppHandle, label: &str, name: &str, args: &Value) -> Reply {
+pub fn call_in_window(app: &AppHandle, label: &str, name: &str, args: &Value, origin: Origin) -> Reply {
     let state = app.state::<AppState>();
     if app.get_webview_window(label).is_none() {
         if let Err(e) = crate::build_window(app, label.to_string(), None) {
@@ -149,7 +166,7 @@ pub fn call_in_window(app: &AppHandle, label: &str, name: &str, args: &Value) ->
         return Err(CLOSED.into());
     }
     let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-    let payload = call_payload(id, name, args, now_ms, CALL_TIMEOUT);
+    let payload = call_payload(id, name, args, origin, now_ms, CALL_TIMEOUT);
     if let Err(e) = app.emit_to(label, "mcp-call", payload) {
         state.calls.forget(id);
         return Err(format!("Could not reach the document window: {e}"));
@@ -226,15 +243,25 @@ mod tests {
     #[test]
     fn a_call_carries_the_deadline_after_which_the_window_must_not_run_it() {
         let args = serde_json::json!({ "from": 2 });
-        let payload = call_payload(7, "delete_blocks", &args, 1_000_000, CALL_TIMEOUT);
+        let payload = call_payload(7, "delete_blocks", &args, Origin::External, 1_000_000, CALL_TIMEOUT);
         // 2 s before Rust gives up, so a call the window starts late is refused, not applied
         assert_eq!(
             payload,
-            serde_json::json!({ "id": 7, "name": "delete_blocks", "args": { "from": 2 }, "deadline": 1_028_000u64 })
+            serde_json::json!({
+                "id": 7, "name": "delete_blocks", "args": { "from": 2 }, "origin": "external", "deadline": 1_028_000u64
+            })
         );
         // a timeout shorter than the margin does not underflow: the deadline is now
-        assert_eq!(call_payload(1, "undo", &args, 5_000, SHORT)["deadline"], 5_000);
-        assert_eq!(call_payload(1, "undo", &args, u64::MAX, CALL_TIMEOUT)["deadline"], u64::MAX);
+        assert_eq!(call_payload(1, "undo", &args, Origin::External, 5_000, SHORT)["deadline"], 5_000);
+        assert_eq!(call_payload(1, "undo", &args, Origin::External, u64::MAX, CALL_TIMEOUT)["deadline"], u64::MAX);
+    }
+
+    #[test]
+    fn a_call_says_whether_the_assistant_or_an_external_client_made_it() {
+        let args = serde_json::json!({});
+        // the window shows external calls in its activity feed; the assistant's are in the chat
+        assert_eq!(call_payload(1, "document_info", &args, Origin::Assistant, 0, CALL_TIMEOUT)["origin"], "assistant");
+        assert_eq!(call_payload(1, "document_info", &args, Origin::External, 0, CALL_TIMEOUT)["origin"], "external");
     }
 
     #[test]

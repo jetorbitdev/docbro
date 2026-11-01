@@ -820,7 +820,7 @@ fn in_window(app: &AppHandle, label: &str, tool: &str, args: &Value) -> Result<S
     if app.get_webview_window(label).is_none() {
         return Err(WINDOW_CLOSED.into());
     }
-    calls::call_in_window(app, label, tool, args)
+    calls::call_in_window(app, label, tool, args, calls::Origin::Assistant)
 }
 
 fn converse(

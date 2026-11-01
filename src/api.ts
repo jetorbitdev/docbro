@@ -24,10 +24,15 @@ export interface ServerView {
   transport: "http" | "stdio";
   /** the URL, or the command line that runs */
   summary: string;
+  /** what the edit form is filled with: the URL of an HTTP server, the command and arguments of a stdio one */
+  url: string | null;
+  command: string | null;
+  args: string[];
   /** header or env names */
   secret_keys: string[];
   status: "off" | "ready" | "error";
   tools: number;
+  /** text the server or its connection sent: show it as plain text */
   error: string | null;
 }
 

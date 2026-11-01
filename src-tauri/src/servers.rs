@@ -46,6 +46,10 @@ pub struct ServerView {
     pub transport: String,
     /// the URL or the command line
     pub summary: String,
+    /// the parts of `spec` that are not secret, so the edit form can be filled in
+    pub url: Option<String>,
+    pub command: Option<String>,
+    pub args: Vec<String>,
     /// header or env names, never their values
     pub secret_keys: Vec<String>,
     /// "off" | "ready" | "error"
@@ -82,12 +86,19 @@ impl Entry {
             (true, Some(_)) => "error",
             (true, None) => "ready",
         };
+        let (url, command, args) = match &c.spec {
+            ServerSpec::Http { url, .. } => (Some(url.clone()), None, Vec::new()),
+            ServerSpec::Stdio { command, args, .. } => (None, Some(command.clone()), args.clone()),
+        };
         ServerView {
             id: c.id.clone(),
             name: c.name.clone(),
             enabled: c.enabled,
             transport: c.spec.transport().into(),
             summary: c.spec.summary(),
+            url,
+            command,
+            args,
             secret_keys: c.spec.secret_keys(),
             status: status.into(),
             tools: self.tools.len(),
@@ -532,6 +543,11 @@ mod tests {
         assert_eq!(notes.secret_keys, ["Authorization"]);
         assert_eq!((notes.transport.as_str(), notes.summary.as_str(), notes.status.as_str()), ("http", "https://notes.example/mcp", "off"));
         assert_eq!(view(&views, "fs").secret_keys, ["API_KEY", "DOCBRO_FAKE_MCP"]);
+        // the edit form is filled from what is not secret: the URL, or the command and its arguments
+        assert_eq!((notes.url.as_deref(), notes.command.as_deref(), notes.args.len()), (Some("https://notes.example/mcp"), None, 0));
+        let ServerSpec::Stdio { command, args, .. } = fake_stdio("1", &[]) else { unreachable!() };
+        assert_eq!((view(&views, "fs").url.as_deref(), view(&views, "fs").command.as_deref()), (None, Some(command.as_str())));
+        assert_eq!(view(&views, "fs").args, args);
 
         // the list comes back after a restart; a file other users could read is made private
         #[cfg(unix)]
