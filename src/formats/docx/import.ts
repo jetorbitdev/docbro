@@ -56,6 +56,8 @@ interface Context {
   // Reading a header or footer for its view: a picture keeps the size the file drew it at (there is no text width to
   // hold it to), and a field is a field, not its last value.
   part?: boolean;
+  // Reading a shaded cell: there black or white text is the writer's choice against the fill, not the source's default.
+  filled?: boolean;
   // The field being read: where each field open inside it is, outermost first, and what has been read of it.
   field?: { phases: ("instr" | "result")[]; instr: string; text: string; marks: Mark[] };
 }
@@ -703,7 +705,7 @@ const UNWRAP = ["w:ins", "w:moveTo", "w:smartTag", "w:customXml", "w:fldSimple",
 // bookmarks, comment anchors and proofing marks have nothing to keep.
 function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: JSONContent[]): void {
   for (const el of children(parent)) {
-    if (is(el, "w:r")) run(el, ctx, runMarks(first(el, "w:rPr"), link), out);
+    if (is(el, "w:r")) run(el, ctx, runMarks(first(el, "w:rPr"), link, ctx.filled), out);
     else if (is(el, "w:hyperlink")) {
       const href = ctx.links.get(attr(el, "r:id") ?? "");
       inlines(el, ctx, href ? { type: "link", attrs: { href } } : link, out);
@@ -758,7 +760,7 @@ const hex = (value: string | null) => (value && /^[0-9a-f]{6}$/i.test(value) ? `
 
 // Only direct formatting becomes marks: a style's look (heading size, the
 // Hyperlink style's blue underline) belongs to the block or the link.
-function runMarks(rPr: Element | null, link: Mark | null): Mark[] {
+function runMarks(rPr: Element | null, link: Mark | null, filled = false): Mark[] {
   const marks: Mark[] = [];
   if (toggle(first(rPr, "w:b"))) marks.push({ type: "bold" });
   if (toggle(first(rPr, "w:i"))) marks.push({ type: "italic" });
@@ -767,7 +769,7 @@ function runMarks(rPr: Element | null, link: Mark | null): Mark[] {
   if (toggle(first(rPr, "w:strike")) || toggle(first(rPr, "w:dstrike"))) marks.push({ type: "strike" });
   // The source's own default text color (Word and Google Docs stamp one on every run) would vanish on the other theme; a choice is kept.
   const color = hex(attr(first(rPr, "w:color"), "w:val"));
-  if (color && !isAutomaticColor(color)) marks.push({ type: "textStyle", attrs: { color } });
+  if (color && (filled || !isAutomaticColor(color))) marks.push({ type: "textStyle", attrs: { color } });
   const highlight = lookup(HIGHLIGHT, attr(first(rPr, "w:highlight"), "w:val")) ?? hex(attr(first(rPr, "w:shd"), "w:fill"));
   if (highlight) marks.push({ type: "highlight", attrs: { color: highlight } });
   if (link) marks.push(link);
@@ -880,10 +882,13 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
       const span = Math.max(1, int(attr(first(tcPr, "w:gridSpan"), "w:val")) ?? 1);
       const vMerge = first(tcPr, "w:vMerge");
       const merge = vMerge ? (attr(vMerge, "w:val") === "restart" ? "restart" : "continue") : null;
+      // White is the page's own color: a fill of it would be a white box on the dark theme.
+      const fill = hex(attr(first(tcPr, "w:shd"), "w:fill"));
+      const background = fill && fill !== "#ffffff" ? fill : null;
       // A page break has no place inside a cell: the table is one block, and the layout never splits it.
-      const content = blocks(tc, ctx).filter((n) => n.type !== "pageBreak");
+      const content = blocks(tc, background ? { ...ctx, filled: true } : ctx).filter((n) => n.type !== "pageBreak");
       const colwidth = grid && col + span <= grid.length ? grid.slice(col, col + span) : null;
-      const cell = { col, span, merge, rowspan: 1, covered: false, content, colwidth };
+      const cell = { col, span, merge, rowspan: 1, covered: false, content, colwidth, background };
       col += span;
       return cell;
     });
@@ -907,11 +912,28 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
     type: "tableRow",
     content: row.cells.filter((c) => !c.covered).map((c) => ({
       type: row.header ? "tableHeader" : "tableCell",
-      attrs: { colspan: c.span, rowspan: c.rowspan, colwidth: c.colwidth },
+      attrs: { colspan: c.span, rowspan: c.rowspan, colwidth: c.colwidth, ...(c.background && { background: c.background }) },
       content: c.content.length ? c.content : [{ type: "paragraph" }],
     })),
   }));
-  return content.length ? { type: "table", content } : null;
+  if (!content.length) return null;
+  const indent = tableIndent(tbl, grid, ctx.textWidth);
+  return { type: "table", ...(indent && { attrs: { indent } }), content };
+}
+
+// How far the table is set in from the left edge of the text, in px: a floating table's offset from the text
+// (`w:tblpX`), else its indent (`w:tblInd`). Only a table of fixed width has one, and never so much that it
+// would run past the right edge; Word's small negative indent, which lines the cell text up with the margin, is none.
+function tableIndent(tbl: Element, grid: number[] | null, textWidth: number): number {
+  if (!grid) return 0;
+  const props = first(tbl, "w:tblPr");
+  const float = first(props, "w:tblpPr");
+  const ind = first(props, "w:tblInd");
+  const twips = float
+    ? attr(float, "w:horzAnchor") !== "page" && !attr(float, "w:tblpXSpec") ? Number(attr(float, "w:tblpX")) : 0
+    : (attr(ind, "w:type") ?? "dxa") === "dxa" ? Number(attr(ind, "w:w")) : 0;
+  const room = textWidth - grid.reduce((sum, w) => sum + w, 0);
+  return Math.max(0, Math.min(room, Math.round((twips || 0) / TWIPS_PER_PX)));
 }
 
 // A cover ends its page, so what Word needed to get the text below its artwork is not kept: the blank

@@ -32,3 +32,14 @@ export function isAutomaticColor(css: string): boolean {
   const light = (r + g + b) / 3;
   return light <= 80 || light >= 200;
 }
+
+/**
+ * The text color that reads on `background`, as Word's automatic color does on a shaded cell: white on a dark
+ * fill, near-black on a light one, whatever the theme. Null for a color it cannot read.
+ */
+export function inkOn(background: string): string | null {
+  const rgb = channels(background);
+  if (!rgb) return null;
+  const [r, g, b] = rgb;
+  return (r * 299 + g * 587 + b * 114) / 1000 >= 128 ? "#1d1f1c" : "#ffffff";
+}

@@ -14,9 +14,13 @@ button,textarea{font-family:inherit}
 .doc blockquote{margin:1.4em 0;padding:4px 0 4px 20px;border-left:2px solid var(--line2);font-style:italic;color:var(--ink2)}
 .doc hr{border:0;border-top:1px solid var(--line);margin:2em 0}
 .doc table{width:100%;max-width:100%;border-collapse:collapse;margin:0 0 1.2em;font-family:var(--font);font-size:13.5px;line-height:1.4}
-.doc th,.doc td{border:1px solid var(--line)}
+.doc th,.doc td{border:1px solid var(--line);vertical-align:top}
 .doc th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line2);background:var(--head)}
 .doc td{padding:8px 10px;border-bottom:1px solid var(--line)}
+/* a cell is not a page: its paragraphs and lists sit close, and the last one leaves no space under it */
+.doc td p,.doc th p,.doc td ul,.doc td ol,.doc th ul,.doc th ol{margin-bottom:.35em}
+.doc td li,.doc th li{margin:0}
+.doc td>:last-child,.doc th>:last-child{margin-bottom:0}
 /* dragging a column border (prosemirror-tables): the table sits in a wrapper, and the border being dragged shows as a line */
 .doc .tableWrapper{overflow-x:auto}
 .doc th,.doc td{position:relative}

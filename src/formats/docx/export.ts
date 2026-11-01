@@ -355,6 +355,7 @@ function table(node: JSONContent, ctx: Context): Block[] {
               columnSpan: columnSpan > 1 ? columnSpan : undefined,
               rowSpan: rowSpan > 1 ? rowSpan : undefined,
               width: width ? { size: width, type: WidthType.DXA } : undefined,
+              shading: hex(cell.attrs?.background) ? { fill: hex(cell.attrs?.background), type: ShadingType.CLEAR, color: "auto" } : undefined,
             });
           }),
         }),
@@ -368,6 +369,7 @@ function table(node: JSONContent, ctx: Context): Block[] {
           columnWidths: twips,
           width: { size: twips.reduce((sum, w) => sum + w, 0), type: WidthType.DXA },
           layout: TableLayoutType.FIXED,
+          indent: node.attrs?.indent ? { size: Math.round(Number(node.attrs.indent) * TWIPS_PER_PX), type: WidthType.DXA } : undefined,
         })
       : new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }),
   ];

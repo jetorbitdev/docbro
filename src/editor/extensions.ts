@@ -2,12 +2,12 @@ import type { Extensions } from "@tiptap/core";
 import { Highlight } from "@tiptap/extension-highlight";
 import { Image } from "@tiptap/extension-image";
 import { Strike } from "@tiptap/extension-strike";
-import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
+import { Table, TableCell, TableHeader, TableRow, TableView } from "@tiptap/extension-table";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
-import { isAutomaticColor } from "./automaticColor";
+import { inkOn, isAutomaticColor } from "./automaticColor";
 import { Field } from "./field";
 import { PageBreak } from "./pageBreak";
 
@@ -49,6 +49,60 @@ const CoverImage = Image.extend({
   },
 });
 
+// A cell's fill, from the file's cell shading: drawn with the text color that reads on it.
+const cellBackground = {
+  background: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-background"),
+    renderHTML: (attributes: Record<string, unknown>) => {
+      const background = attributes.background;
+      if (typeof background !== "string") return {};
+      const ink = inkOn(background);
+      return { "data-background": background, style: `background-color: ${background}${ink ? `; color: ${ink}` : ""}` };
+    },
+  },
+};
+const FilledCell = TableCell.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...cellBackground };
+  },
+});
+const FilledHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...cellBackground };
+  },
+});
+
+// A table set in from the left edge of the text, as the file had it (`w:tblInd`), in px.
+const IndentedTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      indent: {
+        default: 0,
+        parseHTML: (element: HTMLElement) => Number(element.getAttribute("data-indent")) || 0,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.indent ? { "data-indent": attributes.indent, style: `margin-left: ${attributes.indent}px` } : {},
+      },
+    };
+  },
+});
+// The editor draws a table through this view; the attributes above only reach the HTML written out.
+class IndentedTableView extends TableView {
+  constructor(...args: ConstructorParameters<typeof TableView>) {
+    super(...args);
+    this.indent();
+  }
+  update(node: ConstructorParameters<typeof TableView>[0]): boolean {
+    const same = super.update(node);
+    if (same) this.indent();
+    return same;
+  }
+  private indent() {
+    this.table.style.marginLeft = this.node.attrs.indent ? `${this.node.attrs.indent}px` : "";
+  }
+}
+
 // The one schema every part of DocBro shares: the editor, the headless
 // conversions (docx, Markdown, MCP tools) and the tests. `trailingNode: false` is for
 // an editor whose last block is the writer's own, such as a header (layout/PartEditor.tsx).
@@ -75,10 +129,10 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     TextStyle,
     PastedColor,
     Highlight.configure({ multicolor: true }),
-    Table.configure({ resizable: true }),
+    IndentedTable.configure({ resizable: true, View: IndentedTableView }),
     TableRow,
-    TableHeader,
-    TableCell,
+    FilledHeader,
+    FilledCell,
     CoverImage.configure({ allowBase64: true, inline: false }),
     PageBreak,
     Field,
