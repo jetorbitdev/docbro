@@ -146,12 +146,14 @@ export interface ActionDeps {
   openColor?(): void;
   /** Open the Find bar, with its replace field when `replace`; without it Find and Replace stay disabled. */
   openFind?(replace: boolean): void;
+  /** Opens the header or footer just switched on for typing. */
+  openZone?(kind: "header" | "footer"): void;
   shell?: Shell;
 }
 
 /** The actions behind the commands that need more than the editor. Tasks 13 and 14 add theirs here. */
 export function buildActions(deps: ActionDeps): CommandHost["actions"] {
-  const { editor, session, openPalette, openLink, openColor, openFind, shell = tauriShell } = deps;
+  const { editor, session, openPalette, openLink, openColor, openFind, openZone, shell = tauriShell } = deps;
   return {
     newWindow: () => void shell.openInWindow(null).catch(shell.showError),
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
@@ -163,11 +165,15 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     // a header or footer kept from the file counts as on, and the item takes it away
     toggleHeader: () => {
       const { header, headerPart } = session.meta;
-      session.setMeta(header === null && !headerPart ? { header: "" } : { header: null, headerPart: null });
+      if (header !== null || headerPart) return session.setMeta({ header: null, headerPart: null });
+      session.setMeta({ header: "" });
+      openZone?.("header");
     },
     toggleFooter: () => {
       const { footer, footerPart } = session.meta;
-      session.setMeta(footer === null && !footerPart ? { footer: "" } : { footer: null, footerPart: null, pageNumbers: false });
+      if (footer !== null || footerPart) return session.setMeta({ footer: null, footerPart: null, pageNumbers: false });
+      session.setMeta({ footer: "" });
+      openZone?.("footer");
     },
     togglePageNumbers: () => {
       const { footer, pageNumbers } = session.meta;

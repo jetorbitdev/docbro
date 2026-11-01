@@ -1,12 +1,13 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
+import type { Editor } from "@tiptap/core";
 import { useEditor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { buildActions, openPaths, receiveFile, recentlyRan, tauriShell } from "./actions";
 import { api } from "./api";
 import { buildCommands, IS_MAC, type Command } from "./commands";
-import { PAPER, editWarning } from "./doc/meta";
+import { PAPER, editWarning, zonePatch, zoneView, type Zone } from "./doc/meta";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createExtensions } from "./editor/extensions";
 import { seedQuery } from "./editor/find";
@@ -15,7 +16,6 @@ import { FindBar, type FindRequest } from "./editor/FindBar";
 import { AssistantPanel } from "./layout/AssistantPanel";
 import { CommandPalette } from "./layout/CommandPalette";
 import { Dock } from "./layout/Dock";
-import { FooterZone, HeaderZone } from "./layout/HeaderFooter";
 import { MenuBar } from "./layout/MenuBar";
 import { Outline, OutlineRail } from "./layout/OutlinePanel";
 import { crumbs } from "./layout/outline";
@@ -83,8 +83,10 @@ export default function App() {
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
   const [pageLayout, setPageLayout] = useState<PageLayout | null>(null);
-  // A header or footer kept from the file that is being edited, and on which sheet.
-  const [editingPart, setEditingPart] = useState<{ kind: "header" | "footer"; sheet: number } | null>(null);
+  // The header or footer being edited, and on which sheet; its editor, which the menus, the dock and the bubble act on meanwhile.
+  const [editingPart, setEditingPart] = useState<{ kind: Zone; sheet: number } | null>(null);
+  const [zoneEditor, setZoneEditor] = useState<Editor | null>(null);
+  const target = zoneEditor ?? editor;
   const pageConfig = useRef({ ratio: PAPER.letter.height / PAPER.letter.width, zoom: 1 });
   const [popover, setPopover] = useState<"link" | "color" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
@@ -95,17 +97,29 @@ export default function App() {
   const openLink = useCallback(() => setPopover("link"), []);
   const openColor = useCallback(() => setPopover("color"), []);
   const closePopover = useCallback(() => setPopover(null), []);
-  // A double-click in a sheet's margin: edit the header or footer kept from the file, once the person agrees to what that loses.
+  // A double-click in a sheet's margin: edit its header or footer (adding one if there is none), once the person
+  // agrees to what that loses of one kept from the file.
   const editPart = useCallback(
-    async (kind: "header" | "footer", sheet: number) => {
-      const part = session?.meta[`${kind}Part`];
+    async (kind: Zone, sheet: number) => {
+      if (!session) return;
+      const part = session.meta[`${kind}Part`];
       const warning = part && editWarning(part, kind);
       if (warning && !(await ask(warning, { title: `Edit ${kind}`, kind: "warning", okLabel: "Edit", cancelLabel: "Cancel" }))) return;
+      if (!zoneView(session.meta, kind)) session.setMeta({ [kind]: "" });
       setEditingPart({ kind, sheet });
     },
     [session],
   );
-  const endPartEdit = useCallback(() => setEditingPart(null), []);
+  // A header or footer left with nothing in it is taken away again.
+  const endPartEdit = useCallback(() => {
+    setEditingPart((editing) => {
+      const meta = session?.meta;
+      if (editing && meta && meta[editing.kind] === "" && !(editing.kind === "footer" && meta.pageNumbers))
+        session.setMeta({ [editing.kind]: null });
+      return null;
+    });
+  }, [session]);
+  const openZone = useCallback((kind: Zone) => setEditingPart({ kind, sheet: 0 }), []);
   // another document in the window has a header and footer of its own
   useEffect(() => setEditingPart(null), [session, doc.path]);
   // Edit ▸ Find… and Find and replace…: opens the bar, or takes the focus back to one already open
@@ -213,10 +227,10 @@ export default function App() {
   }, [editor, paper, pageRatio, pageZoom, ui.sansFont]);
 
   const actions = useMemo(
-    () => (session ? buildActions({ editor, session, ui, setUi, openPalette, openLink, openColor, openFind }) : {}),
-    [editor, session, ui, setUi, openPalette, openLink, openColor, openFind],
+    () => (session ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFind, openZone }) : {}),
+    [target, session, ui, setUi, openPalette, openLink, openColor, openFind, openZone],
   );
-  const commands: Command[] = session ? buildCommands({ editor, session, ui, setUi, actions }) : [];
+  const commands: Command[] = session ? buildCommands({ editor: target, zoneEditing: !!zoneEditor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
   const latest = useRef(commands);
   useEffect(() => {
@@ -276,7 +290,6 @@ export default function App() {
   }, [session, run, openPalette]);
 
   const layout = viewportLayout(width, ui);
-  const pages = pageLayout?.pages ?? 1;
   // the rail takes room from the page, so it is only there when the document has comments to put in it
   const showComments = layout.showComments && (session?.meta.comments.length ?? 0) > 0;
   const comment = commands.find((c) => c.id === "comment");
@@ -309,33 +322,17 @@ export default function App() {
                 editor={editor}
                 large={ui.largerText}
                 layout={pageLayout}
-                headerPart={session?.meta.headerPart}
-                footerPart={session?.meta.footerPart}
-                editing={editingPart && session?.meta[`${editingPart.kind}Part`] ? editingPart : null}
-                onEdit={editPart}
-                onPartChange={(kind, view) =>
-                  session?.setMeta({ [`${kind}Part`]: { xml: null, rels: null, media: {}, view, editLoses: [] } })}
+                headerView={session && zoneView(session.meta, "header")}
+                footerView={session && zoneView(session.meta, "footer")}
+                editing={editingPart && session && zoneView(session.meta, editingPart.kind) ? editingPart : null}
+                onEdit={session ? editPart : undefined}
+                onPartChange={(kind, view) => session?.setMeta(zonePatch(kind, view))}
                 onEditEnd={endPartEdit}
+                onEditor={setZoneEditor}
                 paperRef={setPaper}
-                header={
-                  session && (
-                    <HeaderZone text={session.meta.header} kept={!!session.meta.headerPart} onChange={(patch) => session.setMeta(patch)} />
-                  )
-                }
-                footer={
-                  session && (
-                    <FooterZone
-                      text={session.meta.footer}
-                      kept={!!session.meta.footerPart}
-                      pageNumbers={session.meta.pageNumbers}
-                      pages={pages}
-                      onChange={(patch) => session.setMeta(patch)}
-                    />
-                  )
-                }
               >
                 <SelectionBubble
-                  editor={editor}
+                  editor={target}
                   paper={paper}
                   scroller={scroller}
                   suspended={paletteOpen || settingsOpen}
@@ -343,8 +340,8 @@ export default function App() {
                   onComment={comment?.enabled ? comment.run : undefined}
                 />
                 <SlashMenu editor={editor} paper={paper} suspended={paletteOpen || settingsOpen} />
-                {popover === "link" && <LinkPopover editor={editor} paper={paper} onClose={closePopover} />}
-                {popover === "color" && <ColorPopover editor={editor} paper={paper} onClose={closePopover} />}
+                {popover === "link" && <LinkPopover editor={target} paper={paper} onClose={closePopover} />}
+                {popover === "color" && <ColorPopover editor={target} paper={paper} onClose={closePopover} />}
               </Paper>
               {/* the comment cards (Task 13) go in .comments-inner, which keeps its width while the rail opens */}
               <div
@@ -356,7 +353,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <Dock editor={editor} run={run} commentsOpen={showComments} />
+          <Dock editor={target} run={run} commentsOpen={showComments} />
         </main>
         {/* mock 231–329: the panel's content goes in .assistant-inner, which keeps its width while the panel opens */}
         <aside

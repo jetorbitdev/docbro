@@ -137,21 +137,7 @@ button,textarea{font-family:inherit}
 .scroll[data-pinning]{overflow-anchor:none}
 .canvas{display:flex;justify-content:center;align-items:flex-start;padding:48px 24px 160px}
 .paper{--hf-offset:clamp(14px,3vw,32px);--pad-y:max(clamp(28px,7vw,80px),calc(var(--hf-offset) + var(--hf-h,0px) + 14px),calc(var(--hf-offset) + var(--hf-fh,0px) + 14px));--pad-x:clamp(22px,7vw,84px);position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:var(--pad-y) var(--pad-x) 96px}
-/* header and footer zones (mock 134–155) */
-.hf-add{position:absolute;left:0;right:0;border:0;background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);text-align:left;padding:0 16px;transition:opacity .15s}
-.hf-add:hover{opacity:1}
-.hf-add-header{top:0;height:clamp(28px,7vw,80px);border-bottom:1px dashed var(--line2)}
-.hf-add-footer{bottom:0;height:80px;border-top:1px dashed var(--line2)}
-.hf-zone{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink3)}
-.hf-header{margin:calc(-1 * clamp(28px,7vw,80px) + 24px) 0 40px;padding-bottom:10px;border-bottom:1px dashed var(--line2)}
-.hf-footer{margin:48px 0 -64px;padding-top:10px;border-top:1px dashed var(--line2)}
 .hf-tag{font-family:var(--font);font-size:10.5px;padding:2px 6px;border-radius:4px;background:var(--soft);color:var(--muted);flex:none}
-.hf-line{flex:1;min-width:0;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;padding:2px 0}
-.hf-line:empty::before{content:attr(data-placeholder);color:var(--muted)}
-.hf-btn{height:24px;padding:0 8px;border:0;background:transparent;color:var(--muted);border-radius:6px;font-size:11.5px;cursor:pointer;flex:none}
-.hf-btn:hover{background:var(--hover)}
-.hf-page{height:24px;padding:0 8px;border:1px solid var(--line2);background:transparent;color:var(--ink2);border-radius:6px;font-size:11.5px;cursor:pointer;font-family:var(--font);flex:none}
-.hf-page.on{background:var(--surface)}
 .doc{font-family:var(--doc-font)}
 .doc.large{zoom:1.2}
 .doc .ProseMirror{outline:none;min-height:600px}
@@ -169,9 +155,7 @@ button,textarea{font-family:inherit}
 .paper.paged{background:none;border-color:transparent;box-shadow:none;border-radius:0;padding-bottom:var(--pad-y)}
 .sheets{position:absolute;inset:0;pointer-events:none}
 .sheet{position:absolute;left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18)}
-.paper.paged>.doc,.paper.paged>.hf-zone{position:relative;z-index:1}
-.paper.paged>.hf-add{z-index:1}
-.paper.paged .hf-footer{position:absolute;left:var(--pad-x);right:var(--pad-x);bottom:14px;margin:0}
+.paper.paged>.doc{position:relative;z-index:1}
 .page-gap{display:block;pointer-events:none;user-select:none}
 /* a header and a footer kept from the file (PartView): read-only, in the margins of every sheet. Pictures float to the
    left of the lines of text, which is where Word puts a logo anchored into a line. The copy in the flow is what is
@@ -198,6 +182,9 @@ button,textarea{font-family:inherit}
 .hf-editor .ProseMirror{outline:none;caret-color:var(--accent-ink)}
 .hf-editor .hf-tag{position:absolute;left:-6px;top:-30px}
 .hf-editor-footer .hf-tag{top:auto;bottom:-30px}
+/* a field being edited shows as what it is: a number DocBro fills in, not text to type over */
+.hf-editor [data-field]{background:var(--soft);border-radius:3px;padding:0 3px}
+.hf-editor [data-field].ProseMirror-selectednode{outline:1px solid var(--accent-ink)}
 .comments-rail{width:0;flex-shrink:0;position:relative;align-self:stretch;overflow:hidden;visibility:hidden;transition:width var(--panel-ms) var(--panel-curve),visibility 0s linear var(--panel-ms)}
 /* the width takes in the gap between the page and the cards, so the page glides as the rail opens */
 .comments-rail.open{width:calc(var(--comments-w) + var(--comments-gap));visibility:visible;transition:width var(--panel-ms) var(--panel-curve),visibility 0s}
@@ -326,7 +313,6 @@ button,textarea{font-family:inherit}
   /* the printer pages the text itself: no sheets or gaps, and a page break ends the page */
   .sheets,.page-gap{display:none!important}
   .paper.paged{min-height:0!important;padding:0}
-  .paper.paged .hf-footer{position:static}
   .doc [data-page-break]{height:0;overflow:hidden;break-after:page}
   .doc [data-page-break]::before,.doc [data-page-break]::after,.doc [data-page-break] span{display:none}
   .doc img[data-cover]{width:100%;height:auto;margin:0;border-radius:0;break-after:page}

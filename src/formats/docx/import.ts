@@ -53,7 +53,10 @@ interface Context {
   dropped: Set<DroppedPart>;
   page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
   textWidth: number; // px, the paper less its side margins: the widest a table is kept
-  sized?: boolean; // a picture is given the size the file drew it at: for the view of a header or footer, which has no text width to hold it to
+  // Reading a header or footer for its view: a picture keeps the size the file drew it at (there is no text width to
+  // hold it to), and a field is a field, not its last value.
+  part?: boolean;
+  field?: { depth: number; instr: string; phase: "instr" | "result"; text: string; marks: Mark[] }; // the field being read
 }
 
 // A block of the body before consecutive list and quote paragraphs are grouped.
@@ -339,7 +342,6 @@ async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFoo
     : null;
   const { view, unseen } = await viewOf(zip, root, relationships(relsDoc), ctx);
   const editLoses: KeptPart["editLoses"] = [];
-  if (["w:fldChar", "w:fldSimple", "w:instrText"].some((name) => descendants(root, name).length)) editLoses.push("fields");
   if (unseen || ["w:txbxContent", "c:chart", "dgm:*", "m:oMath"].some((name) => descendants(root, name).length)) editLoses.push("other_content");
   return { xml: await zip.file(path)!.async("string"), rels, media, view, editLoses };
 }
@@ -347,7 +349,7 @@ async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFoo
 // What the page shows of a kept part: its blocks, with the pictures put first. Word anchors a logo into a line of
 // text and lets the text run beside it; the page floats pictures to the left, which needs them ahead of the text.
 async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<{ view: JSONContent | null; unseen: boolean }> {
-  const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), sized: true };
+  const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), part: true };
   try {
     const content = blocks(root, part).map((node) =>
       node.type === "image" ? { ...node, attrs: { ...node.attrs, cover: false } } : node);
@@ -366,6 +368,8 @@ function simpleLine(doc: Document, kind: HeaderFooterKind): { text: string; page
   if (content.length !== 1 || !is(content[0], "w:p")) return null;
   const paragraph = content[0];
   if (NOT_A_LINE.some((name) => descendants(paragraph, name).length)) return null;
+  // aligned text is kept as a part, which keeps the alignment
+  if (!["left", "start", null].includes(attr(first(first(paragraph, "w:pPr"), "w:jc"), "w:val"))) return null;
   return readLine(paragraph);
 }
 
@@ -380,6 +384,7 @@ function readLine(paragraph: Element): { text: string; pageNumbers: boolean } | 
   let pageNumbers = false;
   let complex = false;
   let field: Field | null = null;
+  const fields: ("page" | "total")[] = []; // in the order they come
 
   const kindOf = (instr: string): "page" | "total" | null => {
     const word = instr.trim().split(/\s+/)[0] ?? "";
@@ -418,14 +423,17 @@ function readLine(paragraph: Element): { text: string; pageNumbers: boolean } | 
           else {
             if (field.kind === null) evaluate();
             if (field.kind === "page") pageNumbers = true;
+            if (field.kind) fields.push(field.kind);
             field = null;
           }
         }
       } else if (is(el, "w:instrText")) {
         if (!field) complex = true;
         else field.instr += el.textContent ?? "";
-      } else if (is(el, "w:rPr")) continue;
-      else complex = true;
+      } else if (is(el, "w:rPr")) {
+        // bold, a color and the like are kept as a part, which keeps them; a font or a size is not the page's anyway
+        if (runMarks(el, null).length) complex = true;
+      } else complex = true;
     }
   };
 
@@ -442,6 +450,7 @@ function readLine(paragraph: Element): { text: string; pageNumbers: boolean } | 
         const kind = kindOf(attr(el, "w:instr") ?? "");
         if (!kind) complex = true;
         if (kind === "page") pageNumbers = true;
+        if (kind) fields.push(kind);
       } else if (
         is(el, "w:pPr") || is(el, "w:proofErr") || is(el, "w:bookmarkStart") || is(el, "w:bookmarkEnd") ||
         is(el, "w:commentRangeStart") || is(el, "w:commentRangeEnd") || is(el, "w:permStart") ||
@@ -452,6 +461,8 @@ function readLine(paragraph: Element): { text: string; pageNumbers: boolean } | 
   };
 
   walk(paragraph);
+  // The text zone's page numbers are DocBro's own label, "Page x of y"; any other wording of them is kept as a part.
+  if (fields.length && (fields.join() !== "page,total" || !/Page\s+of\s*$/i.test(text))) complex = true;
   if (complex) return null;
   return { text: cleanLine(text, pageNumbers), pageNumbers };
 }
@@ -697,8 +708,38 @@ function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: J
       inlines(el, ctx, href ? { type: "link", attrs: { href } } : link, out);
     } else if (is(el, "w:sdt")) inlines(first(el, "w:sdtContent"), ctx, link, out);
     else if (is(el, "mc:AlternateContent")) inlines(choice(el), ctx, link, out);
-    else if (UNWRAP.some((name) => is(el, name))) inlines(el, ctx, link, out);
+    else if (ctx.part && is(el, "w:fldSimple")) {
+      const result: JSONContent[] = [];
+      inlines(el, ctx, link, result);
+      const text = result.map((n) => n.text ?? "").join("");
+      out.push({ type: "field", attrs: { instr: (attr(el, "w:instr") ?? "").trim(), text }, ...(result[0]?.marks && { marks: result[0].marks }) });
+    } else if (UNWRAP.some((name) => is(el, name))) inlines(el, ctx, link, out);
   }
+}
+
+// A field told by its characters, across runs: begin, the instruction, separate, the last value, end. Only the
+// outermost becomes a field; one nested in it is part of its instruction and value. True when `el` was taken.
+function fieldPart(el: Element, ctx: Context, marks: Mark[], out: JSONContent[]): boolean {
+  const field = ctx.field;
+  if (is(el, "w:fldChar")) {
+    const type = attr(el, "w:fldCharType");
+    if (type === "begin") {
+      if (field) field.depth++;
+      else ctx.field = { depth: 1, instr: "", phase: "instr", text: "", marks: [] };
+    } else if (type === "separate" && field?.depth === 1) field.phase = "result";
+    else if (type === "end" && field && --field.depth === 0) {
+      out.push({ type: "field", attrs: { instr: field.instr.trim(), text: field.text }, ...(field.marks.length && { marks: field.marks }) });
+      ctx.field = undefined;
+    }
+    return true;
+  }
+  if (!field) return false;
+  if (is(el, "w:instrText") && field.depth === 1 && field.phase === "instr") field.instr += el.textContent ?? "";
+  if (is(el, "w:t") && field.phase === "result") {
+    if (!field.text) field.marks = marks;
+    field.text += runText(el);
+  }
+  return true; // nothing inside a field is text of its own
 }
 
 const toggle = (el: Element | null) => !!el && !["0", "false", "off"].includes((attr(el, "w:val") ?? "").toLowerCase());
@@ -727,6 +768,7 @@ function run(r: Element | null, ctx: Context, marks: Mark[], out: JSONContent[])
     if (value) out.push(marks.length ? { type: "text", text: value, marks } : { type: "text", text: value });
   };
   for (const el of children(r)) {
+    if (ctx.part && fieldPart(el, ctx, marks, out)) continue;
     if (is(el, "w:t")) text(runText(el));
     else if (is(el, "w:tab") || is(el, "w:ptab")) text("\t");
     else if (is(el, "w:br")) {
@@ -759,7 +801,7 @@ function runText(t: Element): string {
 function drawing(el: Element, ctx: Context, out: JSONContent[]): void {
   const blip = descendants(el, "a:blip")[0];
   if (attr(descendants(el, "a:graphicData")[0], "uri") !== PICTURE || !blip) return void ctx.dropped.add("other_content"); // shape, chart, group, …
-  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page), ctx.sized ? drawnSize(el) : null);
+  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page), ctx.part ? drawnSize(el) : null);
 }
 
 // The size a drawing was given, in px (9525 EMU to the px).

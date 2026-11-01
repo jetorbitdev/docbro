@@ -254,16 +254,75 @@ test("a_picture_with_no_text_after_it_is_written_on_a_line_of_its_own", async ()
   expect(types(again.meta.headerPart!.view)).toEqual(["image", "paragraph"]);
 });
 
-test("a_kept_part_says_what_editing_it_would_turn_into_plain_text", async () => {
+test("a_kept_part_says_what_editing_it_would_leave_out", async () => {
   const letterhead = await importDocx(await pack(part("hdr", LETTERHEAD), { rels: imageRels, media: { "image1.png": PNG } }));
   expect(letterhead.meta.headerPart!.editLoses).toEqual([]);
+  const textbox = '<w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>kotak</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p><w:p/>';
+  expect((await importDocx(await pack(part("hdr", textbox)))).meta.headerPart!.editLoses).toEqual(["other_content"]);
+});
 
-  const field = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
-  const paged = await importDocx(await pack(part("ftr", `<w:p>${field}</w:p><w:p><w:r><w:t>x</w:t></w:r></w:p>`), { kind: "footer" }));
-  expect(paged.meta.footerPart!.editLoses).toEqual(["fields"]);
+// ---------------------------------------------------------------- fields
 
-  const simple = '<w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>1/11</w:t></w:r></w:fldSimple></w:p><w:p/>';
-  const textbox = '<w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>kotak</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>';
-  const both = await importDocx(await pack(part("hdr", simple + textbox)));
-  expect(both.meta.headerPart!.editLoses).toEqual(["fields", "other_content"]);
+const COMPLEX_PAGE = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>3</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
+const fieldsOf = (view: JSONContent | null | undefined) =>
+  (view?.content ?? []).flatMap((block) => (block.content ?? []).filter((n) => n.type === "field").map((n) => n.attrs));
+
+test("a_field_in_a_header_or_footer_is_read_as_a_field_with_its_instruction_and_last_value", async () => {
+  const simple = '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>9</w:t></w:r></w:fldSimple>';
+  const xml = part("ftr", `<w:p><w:r><w:t xml:space="preserve">Halaman </w:t></w:r>${COMPLEX_PAGE}<w:r><w:t xml:space="preserve"> dari </w:t></w:r>${simple}</w:p><w:p><w:r><w:t>x</w:t></w:r></w:p>`);
+  const { meta } = await importDocx(await pack(xml, { kind: "footer" }));
+  expect(fieldsOf(meta.footerPart!.view)).toEqual([{ instr: "PAGE", text: "3" }, { instr: "NUMPAGES", text: "9" }]);
+  const line = meta.footerPart!.view!.content![0].content!;
+  expect(line.map((n) => n.type === "text" ? n.text : `{${n.attrs!.instr}}`).join("")).toBe("Halaman {PAGE} dari {NUMPAGES}");
+  expect(line[1].marks).toEqual([{ type: "bold" }]); // the field keeps the look of its result
+  expect(meta.footerPart!.editLoses).toEqual([]);
+});
+
+test("a_field_inside_a_field_stays_part_of_the_outer_one", async () => {
+  const nested = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> IF </w:instrText></w:r>' + COMPLEX_PAGE +
+    '<w:r><w:instrText> = 1 "satu" "lain" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>lain</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  const { meta } = await importDocx(await pack(part("hdr", `<w:p>${nested}</w:p><w:p/>`)));
+  expect(fieldsOf(meta.headerPart!.view)).toEqual([{ instr: 'IF  = 1 "satu" "lain"', text: "lain" }]);
+});
+
+test("fields_in_the_body_are_still_their_text", async () => {
+  const { doc } = await importDocx(await buildDocx({ document: `<w:p><w:r><w:t xml:space="preserve">Hal </w:t></w:r>${COMPLEX_PAGE}</w:p>` }));
+  expect(doc.content![0].content!.map((n) => n.type)).toEqual(["text", "text"]);
+});
+
+test("an_edited_part_writes_page_fields_as_word_page_numbers_and_others_as_fields", async () => {
+  const field = (instr: string, text: string) => ({ type: "field", attrs: { instr, text } });
+  const line = { type: "paragraph", content: [{ type: "text", text: "Hal " }, field("PAGE", "1"), { type: "text", text: " / " }, field("NUMPAGES", "2"), { type: "text", text: " · " }, field("DATE \\@ \"d MMMM yyyy\"", "1 November 2026")] };
+  const meta = { ...emptyMeta(), footerPart: edited(line, para("dua")) };
+  const bytes = await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, meta);
+  const xml = (await read(bytes, "word/footer1.xml"))!;
+  expect(xml).toMatch(/<w:instrText[^>]*>PAGE<\/w:instrText>/);
+  expect(xml).toMatch(/<w:instrText[^>]*>NUMPAGES<\/w:instrText>/);
+  expect(xml).toMatch(/<w:fldSimple w:instr="DATE/);
+
+  const again = await importDocx(bytes);
+  expect(fieldsOf(again.meta.footerPart!.view).map((f) => f!.instr)).toEqual(["PAGE", "NUMPAGES", 'DATE \\@ "d MMMM yyyy"']);
+});
+
+// ---------------------------------------------------------------- what the one-line text zone may take
+
+test("a_line_with_alignment_formatting_or_a_page_number_of_its_own_wording_is_kept_as_a_part", async () => {
+  const lines = [
+    `<w:p>${right}<w:r><w:t>Rahasia</w:t></w:r></w:p>`, // aligned
+    '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Rahasia</w:t></w:r></w:p>', // bold
+    `<w:p><w:r><w:t xml:space="preserve">Halaman </w:t></w:r>${COMPLEX_PAGE}</w:p>`, // a page number, not "Page x of y"
+  ];
+  for (const line of lines) {
+    const { meta, dropped } = await importDocx(await pack(part("ftr", line), { kind: "footer" }));
+    expect(meta.footer).toBeNull();
+    expect(meta.footerPart).not.toBeNull();
+    expect(dropped).toEqual([]);
+  }
+});
+
+test("a_plain_line_and_docbros_own_page_label_are_still_the_text_zone", async () => {
+  const plain = await importDocx(await pack(part("ftr", '<w:p><w:r><w:rPr><w:rFonts w:ascii="Inter"/><w:sz w:val="20"/></w:rPr><w:t>Rahasia</w:t></w:r></w:p>'), { kind: "footer" }));
+  expect(plain.meta).toMatchObject({ footer: "Rahasia", footerPart: null }); // fonts and sizes are not the page's to keep
+  const own = await importDocx(await exportDocx({ type: "doc", content: [{ type: "paragraph" }] }, { ...emptyMeta(), footer: "Draft", pageNumbers: true }));
+  expect(own.meta).toMatchObject({ footer: "Draft", pageNumbers: true, footerPart: null });
 });

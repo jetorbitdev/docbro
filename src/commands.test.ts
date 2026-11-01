@@ -253,3 +253,14 @@ test("a_kept_header_or_footer_shows_as_on_and_takes_the_page_number_toggle_out_o
   // a footer kept from the file has page numbers of its own, so there is nothing to switch
   expect(byId(host({ actions }), "page_numbers").enabled).toBe(false);
 });
+
+test("while_a_header_or_footer_is_edited_page_numbers_puts_a_page_field_at_the_caret", () => {
+  const actions = { togglePageNumbers: vi.fn() };
+  session.setMeta({ footerPart: { xml: null, rels: null, media: {}, view: null } }); // even with a kept footer
+  editor.commands.setTextSelection(6); // "Hello| world"
+  const command = byId(host({ actions, zoneEditing: true }), "page_numbers");
+  expect(command.enabled).toBe(true);
+  command.run();
+  expect(actions.togglePageNumbers).not.toHaveBeenCalled();
+  expect((editor.getJSON() as JSONContent).content![0].content!.map((n) => n.type === "field" ? `{${n.attrs!.instr}}` : n.text).join("")).toBe("Hello{PAGE} world");
+});

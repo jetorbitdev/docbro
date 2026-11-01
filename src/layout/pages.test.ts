@@ -1,10 +1,5 @@
 import { expect, test } from "vitest";
-import { pageLabel, paginate, type Unit } from "./pages";
-
-test("page_label_matches_the_mock", () => {
-  expect(pageLabel(true, 3)).toBe("Page 1 of 3");
-  expect(pageLabel(false, 3)).toBe("# Add page numbers");
-});
+import { paginate, type Unit } from "./pages";
 
 // A 1000px page with 50px above and below the text, and 20px between pages: the second page's text starts at 1070.
 const PAGE = { pageHeight: 1000, gap: 20, padTop: 50, padBottom: 50 };

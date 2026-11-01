@@ -367,3 +367,15 @@ test("a_kept_header_or_footer_is_switched_off_with_the_same_menu_item_and_page_n
   actions.toggleHeader!(); // and off again means the text zone
   expect(session.meta).toMatchObject({ header: "", headerPart: null });
 });
+
+test("switching_on_a_header_or_footer_from_the_menu_opens_it_for_typing", () => {
+  const ui = {} as UiState;
+  const openZone = vi.fn();
+  const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, shell: fakeShell(), openZone });
+  actions.toggleHeader!();
+  expect(openZone).toHaveBeenLastCalledWith("header");
+  actions.toggleFooter!();
+  expect(openZone).toHaveBeenLastCalledWith("footer");
+  actions.toggleHeader!(); // switching off opens nothing
+  expect(openZone).toHaveBeenCalledTimes(2);
+});

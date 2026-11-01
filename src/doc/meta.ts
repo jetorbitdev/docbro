@@ -34,7 +34,7 @@ export interface KeptPart {
   /** What the page shows of it; null when it could not be turned into a document. */
   view: JSONContent | null;
   /** What `view` lacks of the file's part, which editing turns into plain text or leaves out. */
-  editLoses?: ("fields" | "other_content")[];
+  editLoses?: "other_content"[];
 }
 
 export interface DocMeta {
@@ -58,6 +58,7 @@ export function partText(part: KeptPart | null): string | null {
   const lines: string[] = [];
   const walk = (node: JSONContent) => {
     if (node.type === "text") return void (lines[lines.length - 1] += node.text ?? "");
+    if (node.type === "field") return void (lines[lines.length - 1] += node.attrs?.text ?? "");
     if (node.type === "paragraph" || node.type === "heading") lines.push("");
     (node.content ?? []).forEach(walk);
   };
@@ -67,12 +68,52 @@ export function partText(part: KeptPart | null): string | null {
 
 /** The question to ask before a kept part is edited, when editing it would lose something; null when nothing is lost. */
 export function editWarning(part: KeptPart, kind: "header" | "footer"): string | null {
-  const loses = part.editLoses ?? [];
-  const fields = loses.includes("fields");
-  const other = loses.includes("other_content");
-  if (fields && other)
-    return `This ${kind} has fields, such as page numbers or dates, and content DocBro can't show. Editing it turns the fields into plain text and leaves the rest out. Edit it anyway?`;
-  if (fields) return `This ${kind} has fields, such as page numbers or dates. Editing it turns them into plain text. Edit it anyway?`;
-  if (other) return `This ${kind} has content DocBro can't show. Editing it leaves that out. Edit it anyway?`;
-  return null;
+  if (!(part.editLoses ?? []).includes("other_content")) return null;
+  return `This ${kind} has content DocBro can't show, such as a text box. Editing it leaves that out. Edit it anyway?`;
+}
+
+// ------------------------------------------------------------------ every header and footer, shown and edited one way
+
+export type Zone = "header" | "footer";
+
+const line = (content: JSONContent[] = [], textAlign: string | null = null): JSONContent => ({ type: "paragraph", attrs: { textAlign }, content });
+const field = (instr: string): JSONContent => ({ type: "field", attrs: { instr, text: "1" } });
+// What page numbers look like on the page, and what an edit has to leave of them to stay the footer's toggle.
+const PAGE_LINE = line([{ type: "text", text: "Page " }, field("PAGE"), { type: "text", text: " of " }, field("NUMPAGES")], "right");
+
+/** The header or footer as a document to show and edit: a kept part's blocks, or a text one as a line; null when there is none. */
+export function zoneView(meta: DocMeta, kind: Zone): JSONContent | null {
+  const part = kind === "header" ? meta.headerPart : meta.footerPart;
+  if (part) return part.view;
+  const text = kind === "header" ? meta.header : meta.footer;
+  const pageNumbers = kind === "footer" && meta.pageNumbers;
+  if (text === null && !pageNumbers) return null;
+  const content: JSONContent[] = [];
+  if (text || !pageNumbers) content.push(line(text ? [{ type: "text", text }] : []));
+  if (pageNumbers) content.push(PAGE_LINE);
+  return { type: "doc", content };
+}
+
+// The text of a paragraph of plain, unformatted text, left as it falls; null for anything more.
+function plainLine(node: JSONContent | undefined): string | null {
+  if (node?.type !== "paragraph" || node.attrs?.textAlign) return null;
+  const content = node.content ?? [];
+  if (content.some((n) => n.type !== "text" || n.marks?.length)) return null;
+  return content.map((n) => n.text).join("");
+}
+
+const isPageLine = (node: JSONContent | undefined) => !!node && JSON.stringify(line(node.content, node.attrs?.textAlign ?? null)) === JSON.stringify(PAGE_LINE);
+
+/** What an edited header or footer is kept as: still the text zone when it is a line of plain text (and page numbers), else a part. */
+export function zonePatch(kind: Zone, view: JSONContent): Partial<DocMeta> {
+  const blocks = view.content ?? [];
+  const asPart: KeptPart = { xml: null, rels: null, media: {}, view, editLoses: [] };
+  if (kind === "header") {
+    const text = blocks.length === 1 ? plainLine(blocks[0]) : null;
+    return text === null ? { header: null, headerPart: asPart } : { header: text, headerPart: null };
+  }
+  const pageNumbers = isPageLine(blocks[blocks.length - 1]);
+  const rest = pageNumbers ? blocks.slice(0, -1) : blocks;
+  const text = rest.length === 0 && pageNumbers ? "" : rest.length === 1 ? plainLine(rest[0]) : null;
+  return text === null ? { footer: null, pageNumbers: false, footerPart: asPart } : { footer: text, pageNumbers, footerPart: null };
 }

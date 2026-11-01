@@ -8,6 +8,7 @@ import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { isAutomaticColor } from "./automaticColor";
+import { Field } from "./field";
 import { PageBreak } from "./pageBreak";
 
 // Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
@@ -80,6 +81,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     TableCell,
     CoverImage.configure({ allowBase64: true, inline: false }),
     PageBreak,
+    Field,
     Markdown,
   ];
 }

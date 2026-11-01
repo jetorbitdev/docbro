@@ -1,7 +1,3 @@
-export function pageLabel(on: boolean, pages: number): string {
-  return on ? `Page 1 of ${pages}` : "# Add page numbers";
-}
-
 // --- Where the pages break ---------------------------------------------------------
 
 /** The sheets, in px from the top of the paper: each is `pageHeight` tall with `gap` of desk between it and the next. */

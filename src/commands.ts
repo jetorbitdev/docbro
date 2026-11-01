@@ -27,7 +27,10 @@ type ActionKey =
   | "insertLink" | "pickColor" | "addComment" | "toggleHeader" | "toggleFooter" | "togglePageNumbers";
 
 export interface CommandHost {
+  /** The editor the commands act on: the document's, or the header or footer being edited. */
   editor: Editor;
+  /** A header or footer is being edited, and `editor` is its editor. */
+  zoneEditing?: boolean;
   session: DocSession;
   ui: UiState;
   setUi(patch: Partial<UiState>): void;
@@ -50,7 +53,7 @@ export const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.
 
 /** The menus, the palette and the native menu all run these. Icons, labels and keys follow mock 392–421, else the native menu. */
 export function buildCommands(host: CommandHost): Command[] {
-  const { editor, session, ui, setUi, actions } = host;
+  const { editor, session, ui, setUi, actions, zoneEditing } = host;
   const layout = viewportLayout(window.innerWidth, ui);
   const meta = session.meta;
 
@@ -95,8 +98,12 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("comment", "Insert", "✎", "Comment on selection", "⌥⌘M", actions.addComment),
     cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null || !!meta.headerPart),
     cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null || !!meta.footerPart),
-    // a footer kept from the file has its own page numbers, if any
-    cmd("page_numbers", "Insert", "#", "Page numbers", "", meta.footerPart ? undefined : actions.togglePageNumbers, meta.pageNumbers),
+    // In a header or footer being edited, a page number at the caret; otherwise the text footer's toggle (a kept
+    // footer has its own page numbers, if any).
+    cmd("page_numbers", "Insert", "#", "Page numbers", "",
+      zoneEditing ? edit((c) => c.insertContent({ type: "field", attrs: { instr: "PAGE", text: "1" } }))
+        : meta.footerPart ? undefined : actions.togglePageNumbers,
+      !zoneEditing && meta.pageNumbers),
     // These act on the table around the caret and do nothing anywhere else.
     cmd("column_before", "Insert", "▥", "Add column before", "", edit((c) => c.addColumnBefore())),
     cmd("column_after", "Insert", "▥", "Add column after", "", edit((c) => c.addColumnAfter())),

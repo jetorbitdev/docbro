@@ -16,6 +16,7 @@ import {
   PageNumber,
   Paragraph,
   ShadingType,
+  SimpleField,
   Tab,
   TabStopPosition,
   TabStopType,
@@ -33,10 +34,11 @@ import {
   type IParagraphOptions,
 } from "docx";
 import { PAPER, TWIPS_PER_PX, type DocMeta, type KeptPart } from "../../doc/meta";
+import { fieldName } from "../../editor/field";
 import { MEDIA_TYPES } from "./media";
 
 type Block = Paragraph | Table;
-type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak;
+type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak | SimpleField;
 
 const MARGIN = 1440; // 1in
 const MIN_COLUMN = 40; // px: the least a column nobody sized is given
@@ -373,9 +375,19 @@ function inline(nodes: JSONContent[] | undefined, ctx: Context): Inline[] {
   return (nodes ?? []).flatMap((node): Inline[] => {
     if (node.type === "hardBreak") return [new TextRun({ break: 1 })];
     if (node.type === "image") return [image(node, ctx)];
+    if (node.type === "field") return [field(node)];
     if (node.type === "text" && node.text) return [text(node)];
     return [];
   });
+}
+
+// A page number is written as Word writes one; any other field as the instruction and the value it showed.
+function field(node: JSONContent): TextRun | SimpleField {
+  const instr = String(node.attrs?.instr ?? "");
+  const number = { PAGE: PageNumber.CURRENT, NUMPAGES: PageNumber.TOTAL_PAGES, SECTIONPAGES: PageNumber.TOTAL_PAGES_IN_SECTION }[fieldName(instr)];
+  const bold = node.marks?.some((m) => m.type === "bold") || undefined;
+  const italics = node.marks?.some((m) => m.type === "italic") || undefined;
+  return number ? new TextRun({ children: [number], bold, italics }) : new SimpleField(instr, String(node.attrs?.text ?? ""));
 }
 
 // Only a "#rrggbb" color is written; `shd` and `color` take a bare hex value.
