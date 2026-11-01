@@ -7,7 +7,8 @@ export type ServerSpec =
 
 /**
  * A server as saved. `id` is lowercase `[a-z0-9_-]` (no `__`, at most 32 characters, not
- * `docbro`). When editing a saved server, an empty header or env value keeps the saved one.
+ * `docbro`). When editing a saved server, an empty header or env value keeps the saved one, but
+ * only while the URL's origin (scheme, host, port) or the command stays the same.
  */
 export interface ServerConfig {
   id: string;

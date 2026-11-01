@@ -428,7 +428,7 @@ fn prepare(reg: &Registry, mut config: ServerConfig) -> CmdResult<ServerConfig> 
     }
     if let Ok(index) = reg.find(&config.id) {
         let old = &reg.entries[index].config.spec;
-        if old.transport() == config.spec.transport() {
+        if same_target(old, &config.spec) {
             for (key, value) in config.spec.secrets_mut() {
                 if let (true, Some(kept)) = (value.is_empty(), old.secrets().get(key)) {
                     value.clone_from(kept);
@@ -438,6 +438,29 @@ fn prepare(reg: &Registry, mut config: ServerConfig) -> CmdResult<ServerConfig> 
     }
     check(&config)?;
     Ok(config)
+}
+
+/// Whether saved header or env values may go with `new`: only to the same HTTP origin (scheme,
+/// host and port) or the same command. Settings that point elsewhere must be given them again,
+/// so editing a URL never sends a token to another host.
+fn same_target(old: &ServerSpec, new: &ServerSpec) -> bool {
+    match (old, new) {
+        (ServerSpec::Http { url: a, .. }, ServerSpec::Http { url: b, .. }) => origin(a).is_some_and(|o| Some(o) == origin(b)),
+        (ServerSpec::Stdio { command: a, .. }, ServerSpec::Stdio { command: b, .. }) => a.trim() == b.trim(),
+        _ => false,
+    }
+}
+
+/// `(scheme, host, port)` of a URL, lowercase, with the scheme's default port filled in.
+fn origin(url: &str) -> Option<(String, String, u16)> {
+    let uri = url.trim().parse::<ureq::http::Uri>().ok()?;
+    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let port = uri.port_u16().or(match scheme.as_str() {
+        "http" => Some(80),
+        "https" => Some(443),
+        _ => None,
+    })?;
+    Some((scheme, uri.host()?.to_ascii_lowercase(), port))
 }
 
 /// Connects without saving and returns the server's tool names.
@@ -573,14 +596,60 @@ mod tests {
         let (s, path) = servers("keep");
         s.save(config("notes", "Notes", false, http("https://a.example/mcp", &[("Authorization", "Bearer old-secret-1"), ("X-Team", "team-one")]))).unwrap();
         // the form only knows the names: an empty value means "unchanged", a new one replaces it
-        s.save(config("notes", "Notes 2", false, http("https://b.example/mcp", &[("Authorization", ""), ("X-Team", "team-two")]))).unwrap();
+        // (the same origin: a different path, case or written-out default port)
+        s.save(config("notes", "Notes 2", false, http("HTTPS://A.example:443/v2/mcp", &[("Authorization", ""), ("X-Team", "team-two")]))).unwrap();
         let saved = fs::read_to_string(&path).unwrap();
         assert!(saved.contains("old-secret-1") && saved.contains("team-two") && !saved.contains("team-one"), "{saved}");
         assert_eq!(s.views().len(), 1);
         assert_eq!(s.views()[0].name, "Notes 2");
         // a key left out is removed
-        s.save(config("notes", "Notes", false, http("https://b.example/mcp", &[]))).unwrap();
+        s.save(config("notes", "Notes", false, http("https://a.example/mcp", &[]))).unwrap();
         assert!(s.views()[0].secret_keys.is_empty());
+    }
+
+    /// The value saved for `key` of server `id`.
+    fn saved_secret(s: &Servers, id: &str, key: &str) -> Option<String> {
+        let reg = s.lock();
+        reg.entries[reg.find(id).unwrap()].config.spec.secrets().get(key).cloned()
+    }
+
+    #[test]
+    fn saved_header_values_are_never_sent_to_another_origin() {
+        let (s, _path) = servers("origin");
+        let keep = |url: &str| {
+            s.save(config("notes", "Notes", false, http("https://a.example/mcp", &[("Authorization", "Bearer old-secret-1")]))).unwrap();
+            // a Test of the edited settings goes through the same filling as a save
+            let tested = s.prepare(config("notes", "Notes", false, http(url, &[("Authorization", "")]))).unwrap();
+            s.save(config("notes", "Notes", false, http(url, &[("Authorization", "")]))).unwrap();
+            let kept = saved_secret(&s, "notes", "Authorization").unwrap();
+            assert_eq!(tested.spec.secrets()["Authorization"], kept, "{url}");
+            kept == "Bearer old-secret-1"
+        };
+        assert!(keep("https://a.example/other"));
+        assert!(keep("https://a.example:443/mcp"));
+        // another host, port or scheme gets the empty value the form sent
+        for url in ["https://evil.example/mcp", "https://a.example:8443/mcp", "http://a.example/mcp", "https://a.example.evil.example/mcp"] {
+            assert!(!keep(url), "{url}");
+            assert_eq!(saved_secret(&s, "notes", "Authorization").unwrap(), "", "{url}");
+        }
+    }
+
+    #[test]
+    fn saved_env_values_are_only_kept_for_the_same_command() {
+        let (s, _path) = servers("command");
+        let stdio = |command: &str, args: &[&str], value: &str| ServerSpec::Stdio {
+            command: command.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: BTreeMap::from([("API_KEY".to_string(), value.to_string())]),
+        };
+        s.save(config("fs", "Files", false, stdio("files-mcp", &["--a"], "sk-live-abcdef123"))).unwrap();
+        // other arguments, the same program: kept
+        s.save(config("fs", "Files", false, stdio("  files-mcp ", &["--b"], ""))).unwrap();
+        assert_eq!(saved_secret(&s, "fs", "API_KEY").unwrap(), "sk-live-abcdef123");
+        // another program never gets them
+        assert_eq!(s.prepare(config("fs", "Files", false, stdio("other-mcp", &["--b"], ""))).unwrap().spec.secrets()["API_KEY"], "");
+        s.save(config("fs", "Files", false, stdio("other-mcp", &["--b"], ""))).unwrap();
+        assert_eq!(saved_secret(&s, "fs", "API_KEY").unwrap(), "");
     }
 
     #[test]

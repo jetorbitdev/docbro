@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ServerConfig } from "../api";
 import { McpSettings } from "./McpSettings";
-import { commandLine, splitArgs } from "./ServerForm";
+import { commandLine, quoteArg, splitArgs } from "./ServerForm";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -32,10 +32,12 @@ const sheetbro = {
 let host: HTMLElement;
 let root: Root;
 let calls: { cmd: string; args: Record<string, unknown> }[];
+let listed: unknown[];
 
 beforeEach(() => {
   mockWindows("main");
   calls = [];
+  listed = [sheetbro];
   mockIPC((cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;
     calls.push({ cmd, args });
@@ -45,7 +47,7 @@ beforeEach(() => {
       case "assistant_status":
         return { configured: true, key_hint: "c0de", model: "claude-sonnet-5-5", api_key: KEY };
       case "servers_list":
-        return [sheetbro];
+        return listed;
       case "servers_save":
         return [sheetbro];
       case "servers_test":
@@ -62,9 +64,9 @@ afterEach(() => {
   clearMocks();
 });
 
-async function render(addServer = false) {
+async function render(addServer = false, shows = "SheetBro") {
   await act(async () => root.render(<McpSettings onClose={() => {}} addServer={addServer} />));
-  await vi.waitFor(() => expect(host.textContent).toContain("SheetBro"));
+  await vi.waitFor(() => expect(host.textContent).toContain(shows));
 }
 const button = (text: string) => {
   const found = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
@@ -169,4 +171,76 @@ test.each([
 
 test("the_command_line_quotes_what_a_shell_would_split", () => {
   expect(commandLine("npx", ["-y", "a b", `say "hi"`, ""])).toBe(`npx -y "a b" "say \\"hi\\"" ""`);
+});
+
+// arguments a shell-like line has to quote: quotes, backslashes (a trailing one too), spaces, nothing at all
+const AWKWARD = ["--dir", "/Users/O'Brien/docs", "--x", "C:\\My Dir\\", 'say "hi"', "a\\b", "", "it's \\\"odd\\\"", "plain"];
+
+test("arguments_read_back_exactly_as_they_were_written_out", () => {
+  expect(splitArgs(AWKWARD.map(quoteArg).join(" "))).toEqual(AWKWARD);
+  for (const a of AWKWARD) expect(splitArgs(quoteArg(a))).toEqual([a]);
+});
+
+const files = {
+  ...sheetbro,
+  id: "files",
+  name: "Files",
+  transport: "stdio",
+  summary: commandLine("files-mcp", AWKWARD),
+  url: null,
+  command: "files-mcp",
+  args: AWKWARD,
+  secret_keys: ["API_KEY"],
+  status: "ready",
+  error: null,
+};
+
+test("editing_only_the_name_saves_the_same_arguments", async () => {
+  listed = [files];
+  await render(false, "Files");
+  await click("Edit");
+  await type(field("Name"), "Local files");
+  await click("Save");
+  await click("Run it");
+  const saved = calls.find((c) => c.cmd === "servers_save")!.args.config as ServerConfig;
+  expect(saved).toEqual({
+    id: "files",
+    name: "Local files",
+    enabled: true,
+    spec: { transport: "stdio", command: "files-mcp", args: AWKWARD, env: { API_KEY: "" } },
+  });
+});
+
+test("an_unclosed_quote_keeps_save_disabled_and_says_why", async () => {
+  await render(true);
+  await type(field("Name"), "Files");
+  await click("Command");
+  await type(field("Command"), "files-mcp");
+  await type(field("Arguments"), `--dir "/My Docs`);
+  expect(button("Save").disabled).toBe(true);
+  expect(host.textContent).toContain("A quote in the arguments is not closed.");
+});
+
+test("saved_values_are_not_kept_for_another_url_or_command", async () => {
+  await render();
+  await click("Edit");
+  const note = "The saved values are not sent to a different server. Enter them again.";
+  expect(host.textContent).not.toContain(note);
+  await type(field("URL"), "http://127.0.0.1:7424/other");
+  expect(host.textContent).not.toContain(note);
+  await type(field("URL"), "https://elsewhere.example/mcp");
+  expect(host.textContent).toContain(note);
+  // the saved Authorization would go out empty: it has to be typed again
+  expect(button("Save").disabled).toBe(true);
+  await type(field("Header 1 value"), "Bearer new-token");
+  expect(button("Save").disabled).toBe(false);
+});
+
+test("saved_env_values_are_not_kept_for_another_command", async () => {
+  listed = [files];
+  await render(false, "Files");
+  await click("Edit");
+  await type(field("Command"), "other-mcp");
+  expect(host.textContent).toContain("The saved values are not sent to a different server. Enter them again.");
+  expect(button("Save").disabled).toBe(true);
 });

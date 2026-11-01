@@ -18,10 +18,11 @@ const message = (e: unknown) => (e instanceof Error && e.message) || String(e);
 
 /**
  * Arguments typed on one line, split at spaces. Quotes keep spaces in an argument: '…' as is,
- * "…" with \" for a quote inside. Other backslashes are kept, so Windows paths survive.
+ * "…" with \" and \\ for a quote and a backslash inside. Other backslashes are kept, so
+ * Windows paths survive. `open` is true when a quote is never closed.
  */
-export function splitArgs(text: string): string[] {
-  const out: string[] = [];
+function parseArgs(text: string): { args: string[]; open: boolean } {
+  const args: string[] = [];
   let arg = "";
   let started = false; // an argument is open, even an empty "" one
   let quote: "'" | '"' | null = null;
@@ -29,13 +30,13 @@ export function splitArgs(text: string): string[] {
     const c = text[i];
     if (quote) {
       if (c === quote) quote = null;
-      else if (quote === '"' && c === "\\" && text[i + 1] === '"') arg += text[++i];
+      else if (quote === '"' && c === "\\" && (text[i + 1] === '"' || text[i + 1] === "\\")) arg += text[++i];
       else arg += c;
     } else if (c === "'" || c === '"') {
       quote = c;
       started = true;
     } else if (/\s/.test(c)) {
-      if (started) out.push(arg);
+      if (started) args.push(arg);
       arg = "";
       started = false;
     } else {
@@ -43,15 +44,28 @@ export function splitArgs(text: string): string[] {
       started = true;
     }
   }
-  if (started) out.push(arg);
-  return out;
+  if (started) args.push(arg);
+  return { args, open: quote !== null };
 }
 
-/** One argument as `splitArgs` reads it back: in quotes when it is empty or has a space or a quote. */
-const quoteArg = (a: string) => (a && !/[\s"]/.test(a) ? a : `"${a.replace(/"/g, '\\"')}"`);
+export const splitArgs = (text: string) => parseArgs(text).args;
 
-/** The command line as Rust shows it (`ServerSpec::summary`). */
-export const commandLine = (command: string, args: string[]) => [command, ...args].map(quoteArg).join(" ");
+/** One argument written so that `splitArgs` reads it back unchanged: quoted, with \ and " escaped, unless it is plain. */
+export const quoteArg = (a: string) => (a && !/[\s"'\\]/.test(a) ? a : `"${a.replace(/[\\"]/g, "\\$&")}"`);
+
+/** The command line as Rust shows it (`ServerSpec::summary`): for reading, not for parsing back. */
+export const commandLine = (command: string, args: string[]) =>
+  [command, ...args].map((a) => (a && !/[\s"]/.test(a) ? a : `"${a.replace(/"/g, '\\"')}"`)).join(" ");
+
+/** `scheme://host[:port]` of a URL, as Rust compares them (servers.rs, `same_target`); null when it is not one. */
+function originOf(url: string): string | null {
+  try {
+    const u = new URL(url.trim());
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
 
 /** A new server's id, from its name: lowercase, unique, never `docbro`. */
 function newId(name: string, taken: string[]): string {
@@ -65,8 +79,18 @@ function newId(name: string, taken: string[]): string {
 }
 
 /** The first thing that stops the form from being saved, in words; null when it can be. */
-function problem(name: string, transport: ServerSpec["transport"], url: string, command: string, rows: Row[]): string | null {
+function problem(
+  name: string,
+  transport: ServerSpec["transport"],
+  url: string,
+  command: string,
+  openQuote: boolean,
+  rows: Row[],
+  kept: boolean,
+): string | null {
   if (!name.trim()) return "Give the server a name.";
+  const lost = rows.find((r) => r.saved && !r.value && !kept);
+  if (lost) return `Enter the value of ${lost.name} again.`;
   if (transport === "http") {
     if (!/^https?:\/\/[^\s/?#]+/i.test(url.trim())) return "The URL must start with http:// or https://.";
     for (const r of rows) {
@@ -77,6 +101,7 @@ function problem(name: string, transport: ServerSpec["transport"], url: string, 
     }
   } else {
     if (!command.trim()) return "Enter the command to run.";
+    if (openQuote) return "A quote in the arguments is not closed.";
     for (const r of rows) {
       if (!r.name) return "Give every variable a name.";
       if (r.name.includes("=")) return `"${r.name}" is not a valid environment variable name.`;
@@ -120,8 +145,12 @@ export function ServerForm({ editing, taken, onSaved, onCancel }: Props) {
   const setRows = http ? setHeaders : setEnv;
   // a row left blank is no row
   const filled = rows.filter((r) => r.name.trim() || r.value || r.saved).map((r) => ({ ...r, name: r.name.trim() }));
-  const invalid = problem(name, transport, url, command, filled);
-  const argList = splitArgs(args);
+  // Rust only fills empty saved values in for the same origin or command, so a token never goes to another host
+  const kept =
+    editing?.transport === transport &&
+    (http ? originOf(url) !== null && originOf(url) === originOf(editing.url ?? "") : command.trim() === editing.command?.trim());
+  const { args: argList, open: openQuote } = parseArgs(args);
+  const invalid = problem(name, transport, url, command, openQuote, filled, kept);
   const line = commandLine(command.trim(), argList);
 
   const config = (): ServerConfig => {
@@ -219,6 +248,9 @@ export function ServerForm({ editing, taken, onSaved, onCancel }: Props) {
             </button>
           </div>
         ))}
+        {!kept && rows.some((r) => r.saved) && (
+          <p className="mcp-note">The saved values are not sent to a different server. Enter them again.</p>
+        )}
         <button className="add-btn" onClick={() => setRows([...rows, { name: "", value: "" }])}>
           {http ? "+ Add header" : "+ Add variable"}
         </button>
