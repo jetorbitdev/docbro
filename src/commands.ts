@@ -83,7 +83,8 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("focus", "View", "◎", "Focus mode", "", flip("focus"), ui.focus),
     cmd("outline", "View", "☰", "Show outline", "", () => setUi(toggleOutline(layout.showOutline)), layout.showOutline),
     cmd("comments", "View", "✎", "Show comments", "", flip("hideComments"), !ui.hideComments),
-    cmd("assistant", "View", "✦", "Assistant (MCP)", "⌥⌘A", flip("assistantOpen"), ui.assistantOpen),
+    // Focus mode hides the Assistant: asking for it leaves Focus mode
+    cmd("assistant", "View", "✦", "Assistant (MCP)", "⌥⌘A", () => setUi(ui.focus ? { focus: false, assistantOpen: true } : { assistantOpen: !ui.assistantOpen }), ui.assistantOpen && !ui.focus),
     // the theme lives on <html>, not in `ui`: an empty patch re-renders the menus with the new state
     cmd("dark_mode", "View", "◐", "Dark mode", "", () => (toggleTheme(), setUi({})), currentTheme() === "dark"),
     cmd("larger_text", "View", "A", "Larger text", "", flip("largerText"), ui.largerText),

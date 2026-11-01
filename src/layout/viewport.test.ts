@@ -21,6 +21,7 @@ test.each([
   [800, { assistantOpen: false }, { showOutline: false, outlineRail: true, showComments: false }],
   [700, { assistantOpen: true }, { assistantOpen: false }],
   [1600, { focus: true }, { showOutline: false, showComments: false, showMenuBar: false, outlineRail: false }],
+  [1600, { focus: true, assistantOpen: true }, { assistantOpen: false }],
 ])("viewportLayout at %ipx", (w, ui, want) => {
   expect(viewportLayout(w, { ...BASE_UI, ...ui })).toMatchObject(want);
 });

@@ -21,7 +21,7 @@ export interface LayoutFlags {
 
 /** Which panels fit in a window `width` px wide (mock 656–663, 723). */
 export function viewportLayout(width: number, ui: UiState): LayoutFlags {
-  const assistantOpen = ui.assistantOpen && width >= 760;
+  const assistantOpen = !ui.focus && ui.assistantOpen && width >= 760;
   const showOutline =
     !ui.focus && !ui.hideOutline && (ui.forceOutline ? width >= 760 : width >= (assistantOpen ? 1240 : 900));
   return {

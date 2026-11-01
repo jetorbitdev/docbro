@@ -308,7 +308,7 @@ export default function App() {
 
   return (
     <div className={`app${resizing ? " snap" : ""}`} data-font={ui.sansFont ? "sans" : undefined}>
-      <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen} run={run} />
+      <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen && !ui.focus} run={run} />
       <MenuBar commands={commands} visible={layout.showMenuBar} />
       {findRequest && <FindBar editor={editor} request={findRequest} onClose={closeFind} />}
       <div className="workspace">

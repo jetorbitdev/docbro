@@ -215,6 +215,16 @@ test("view_toggles_patch_the_ui_and_show_their_state", () => {
   expect(byId(host(), "bold").state).toBe("");
 });
 
+test("the_assistant_is_hidden_in_focus_mode_and_opening_it_leaves_focus_mode", () => {
+  const setUi = vi.fn();
+  const focused = { ...BASE_UI, focus: true, assistantOpen: true };
+  expect(byId(host({ ui: focused }), "assistant").state).toBe("");
+  byId(host({ setUi, ui: focused }), "assistant").run();
+  expect(setUi).toHaveBeenLastCalledWith({ focus: false, assistantOpen: true });
+  byId(host({ setUi, ui: { ...BASE_UI, assistantOpen: true } }), "assistant").run();
+  expect(setUi).toHaveBeenLastCalledWith({ assistantOpen: false });
+});
+
 test("dark_mode_flips_the_theme_and_asks_for_a_new_render", () => {
   const setUi = vi.fn();
   document.documentElement.dataset.theme = "light";
