@@ -700,6 +700,17 @@ fn errors_never_contain_the_api_key() {
         let client = AnthropicModel::new(&run.key, &run.model, String::new(), vec![], &server.url, run.cancel.clone());
         texts.extend(client.stream(&json!({ "messages": [] }), &mut |_| {}).err());
     }
+    // an error message cut at 300 characters, with the key repeated across the cut
+    for start in 288..=292 {
+        let server = FakeHttp::start(move |_, headers| {
+            let message = format!("{}{} and more", "x".repeat(start), echo(headers));
+            Reply::status(500, &json!({ "type": "error", "error": { "type": "x", "message": message } }).to_string())
+        });
+        let client = AnthropicModel::new(&run.key, &run.model, String::new(), vec![], &server.url, run.cancel.clone());
+        let error = client.stream(&json!({ "messages": [] }), &mut |_| {}).unwrap_err();
+        assert!(error.starts_with("Anthropic API error 500: xxx"), "{error}");
+        texts.push(error);
+    }
     let server = FakeHttp::start(move |_, headers| {
         let error = json!({ "type": "error", "error": { "type": "overloaded_error", "message": format!("no {}", echo(headers)) } });
         Reply::sse(format!("{}event: error\ndata: {error}\n\n", text_delta(0, "Hi")))
@@ -714,9 +725,10 @@ fn errors_never_contain_the_api_key() {
     let client = AnthropicModel::new(&run.key, &run.model, String::new(), vec![], &format!("http://127.0.0.1:{port}/"), run.cancel.clone());
     texts.extend(client.stream(&json!({ "messages": [] }), &mut |_| {}).err());
 
-    assert!(texts.len() >= 12, "{texts:?}");
+    assert!(texts.len() >= 17, "{texts:?}");
     for text in &texts {
-        assert!(!text.contains(KEY), "the key leaked: {text}");
+        // not even partly: no 8 or more of its first characters
+        assert!(!text.contains(&KEY[..8]), "the key leaked: {text}");
     }
     assert!(texts.iter().any(|t| t.contains("[hidden]")), "{texts:?}");
 }
@@ -809,4 +821,82 @@ fn stopping_ends_the_stream_without_waiting_for_the_rest() {
     assert_eq!(result, Ok(()));
     assert_eq!(events, [StreamEvent::Text("Hel".into())]);
     assert!(started.elapsed() < std::time::Duration::from_secs(4), "{:?}", started.elapsed());
+}
+
+#[test]
+fn a_conversation_with_tool_calls_stays_valid_when_no_tools_are_offered() {
+    let history = json!([
+        user("How long is it?"),
+        { "role": "assistant", "content": [
+            { "type": "text", "text": "Checking." },
+            { "type": "tool_use", "id": "t1", "name": "docbro__document_info", "input": { "x": 1 } },
+            { "type": "tool_use", "id": "t2", "name": "notes__search", "input": {} },
+        ] },
+        { "role": "user", "content": [
+            { "type": "tool_result", "tool_use_id": "t1", "content": "{\"blocks\":12}", "is_error": false },
+            { "type": "tool_result", "tool_use_id": "t2", "content": [{ "type": "text", "text": "notes is off" }], "is_error": true },
+        ] },
+        { "role": "assistant", "content": [{ "type": "text", "text": "12 blocks." }] },
+        user("Thanks. Anything else?"),
+    ]);
+    let server = FakeHttp::start(|_, _| Reply::sse([text_delta(0, "No."), stop("end_turn")].concat()));
+    let request = json!({ "messages": history });
+
+    // the document server switched off and no other server on: no tools, so no tool blocks either
+    let bare = AnthropicModel::new(KEY, "m", String::new(), vec![], &server.url, Arc::new(AtomicBool::new(false)));
+    bare.stream(&request, &mut |_| {}).unwrap();
+    let sent = &server.seen()[0].body;
+    assert!(sent.get("tools").is_none());
+    let text = sent["messages"].to_string();
+    assert!(!text.contains("tool_use") && !text.contains("tool_result"), "{text}");
+    // what happened stays readable for the model
+    let messages = sent["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages[0], user("How long is it?"));
+    let called = messages[1]["content"].to_string();
+    assert!(called.contains("Checking.") && called.contains("docbro__document_info") && called.contains("notes__search"), "{called}");
+    let results = messages[2]["content"].to_string();
+    assert!(results.contains("blocks") && results.contains("notes is off") && results.contains("failed"), "{results}");
+    assert!(messages.iter().all(|m| m["content"].is_string() || m["content"].as_array().unwrap().iter().all(|b| b["type"] == "text" && !b["text"].as_str().unwrap().trim().is_empty())));
+
+    // with tools on offer the conversation goes as it is
+    let tools = vec![json!({ "name": "docbro__document_info", "description": "Info", "input_schema": { "type": "object" } })];
+    let full = AnthropicModel::new(KEY, "m", String::new(), tools, &server.url, Arc::new(AtomicBool::new(false)));
+    full.stream(&request, &mut |_| {}).unwrap();
+    assert_eq!(server.seen()[1].body["messages"], history);
+}
+
+/// Streams "\n", then the user stops, then more text that is no longer shown.
+struct StoppedAfterANewline<'a>(&'a AtomicBool);
+
+impl Model for StoppedAfterANewline<'_> {
+    fn stream(&self, _: &Value, on: &mut dyn FnMut(StreamEvent)) -> Result<(), String> {
+        on(StreamEvent::Text("\n".into()));
+        self.0.store(true, Ordering::SeqCst);
+        on(StreamEvent::Text("late".into()));
+        Ok(())
+    }
+}
+
+#[test]
+fn text_that_is_only_whitespace_never_becomes_a_block() {
+    let cancel = AtomicBool::new(false);
+    let mut history = vec![user("Hi")];
+    let mut events = Vec::new();
+    let mut tools = Tools::new(&[], |_, _, _| ok(""));
+    run_turn(&StoppedAfterANewline(&cancel), &mut tools, &mut history, &mut |e| events.push(e), &cancel).unwrap();
+    assert_eq!(history, vec![user("Hi")]);
+    assert_eq!(events.last(), Some(&Event::Done));
+
+    // blank text before a tool call, and a blank reply
+    let model = Script::new(vec![
+        asks(vec![StreamEvent::Text(" \n".into()), use_tool("t1", "docbro__document_info", json!({}))]),
+        vec![StreamEvent::Text("\n\n".into()), StreamEvent::Stop("end_turn".into())],
+    ]);
+    let mut tools = Tools::new(&[("docbro", "document_info")], |_, _, _| ok("{}"));
+    let mut history = vec![user("Hi")];
+    let (result, _) = turn(&model, &mut tools, &mut history, &AtomicBool::new(false));
+    result.unwrap();
+    assert_eq!(roles(&history), ["user", "assistant", "user"]);
+    assert_eq!(history[1]["content"], json!([{ "type": "tool_use", "id": "t1", "name": "docbro__document_info", "input": {} }]));
 }

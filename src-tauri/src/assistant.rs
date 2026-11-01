@@ -566,10 +566,12 @@ impl Reply {
         }
     }
 
-    /// The API refuses empty text blocks, so only text that came in becomes one.
+    /// The API refuses text blocks that are empty or only whitespace (as when the user stops
+    /// right after a line break), so such text is dropped.
     fn end_text(&mut self) {
-        if !self.text.is_empty() {
-            self.content.push(json!({ "type": "text", "text": std::mem::take(&mut self.text) }));
+        let text = std::mem::take(&mut self.text);
+        if !text.trim().is_empty() {
+            self.content.push(json!({ "type": "text", "text": text }));
         }
     }
 }
@@ -696,10 +698,14 @@ impl AnthropicModel {
 
 impl Model for AnthropicModel {
     fn stream(&self, request: &Value, on: &mut dyn FnMut(StreamEvent)) -> Result<(), String> {
+        let messages = match self.tools.is_empty() {
+            true => without_tool_blocks(&request["messages"]),
+            false => request["messages"].clone(),
+        };
         let mut body = json!({
             "model": self.model,
             "max_tokens": MAX_TOKENS,
-            "messages": request["messages"],
+            "messages": messages,
             "stream": true,
         });
         if !self.system.is_empty() {
@@ -721,7 +727,9 @@ impl Model for AnthropicModel {
         if !(200..300).contains(&status) {
             let mut answer = Vec::new();
             let _ = res.into_body().into_reader().take(64 * 1024).read_to_end(&mut answer);
-            return Err(self.hide_key(http_error(status, &String::from_utf8_lossy(&answer), &self.model)));
+            // hidden before `http_error` cuts the message, so a cut never leaves part of the key
+            let answer = self.hide_key(String::from_utf8_lossy(&answer).into_owned());
+            return Err(http_error(status, &answer, &self.model));
         }
         let mut reader = res.into_body().into_reader();
         let (mut parser, mut chunk) = (SseParser::default(), [0u8; 8192]);
@@ -738,6 +746,38 @@ impl Model for AnthropicModel {
             }
         }
         Ok(())
+    }
+}
+
+/// The conversation with its tool calls and results told as text. The API refuses tool blocks in
+/// a request that offers no tools, which is what a conversation that used tools sends once the
+/// user switches off every server it used. The history itself keeps the blocks, so they go out
+/// as they are again once tools are offered.
+fn without_tool_blocks(messages: &Value) -> Value {
+    let Some(messages) = messages.as_array() else { return messages.clone() };
+    let as_text = |block: &Value| match block["type"].as_str() {
+        Some("tool_use") => {
+            let name = block["name"].as_str().unwrap_or_default();
+            json!({ "type": "text", "text": format!("[Called the tool {name} with {}]", block["input"]) })
+        }
+        Some("tool_result") => {
+            let what = if block["is_error"] == true { "The tool failed" } else { "The tool answered" };
+            json!({ "type": "text", "text": format!("[{what}: {}]", result_text(&block["content"])) })
+        }
+        _ => block.clone(),
+    };
+    let flat = messages.iter().map(|m| match m["content"].as_array() {
+        Some(blocks) => json!({ "role": m["role"], "content": blocks.iter().map(as_text).collect::<Vec<_>>() }),
+        None => m.clone(),
+    });
+    Value::Array(flat.collect())
+}
+
+/// A tool result's content, which is text or a list of text blocks.
+fn result_text(content: &Value) -> String {
+    match content.as_array() {
+        Some(blocks) => blocks.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        None => content.as_str().unwrap_or_default().to_string(),
     }
 }
 
