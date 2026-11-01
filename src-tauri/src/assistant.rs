@@ -6,6 +6,10 @@
 //!
 //! The API key never leaves Rust: the webview only learns its last four characters, and it is
 //! never logged, put in `Debug` output, or in an error message.
+//!
+//! A second engine, Claude Code (`claude_code`), runs the user's own `claude` CLI instead of the
+//! API. The CLI runs its own tool loop, so it sits beside `run_turn` and shares the rest: the
+//! chat of each window, `settle` and the `assistant-event`s.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -25,7 +29,9 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::{
-    calls, files, mcp,
+    calls,
+    claude_code::{self, ClaudeStatus, Session},
+    files, mcp,
     mcp_client::{cut, ToolInfo, ToolOutput},
     servers::RESERVED_ID,
     AppState, CmdResult, LockExt,
@@ -34,6 +40,8 @@ use crate::{
 /// Same as `identifier` in tauri.conf.json.
 const APP_ID: &str = "com.jetorbit.docbro";
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
+/// What Claude Code runs unless the user picks another model: a CLI alias.
+pub const DEFAULT_CLAUDE_MODEL: &str = "sonnet";
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
@@ -45,14 +53,14 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Model rounds per message: each round is one reply, and the tools it asks for.
-const MAX_ROUNDS: usize = 12;
+pub(crate) const MAX_ROUNDS: usize = 12;
 /// Characters of a tool result the model gets.
 const MAX_RESULT: usize = 20_000;
 /// Tool names sent to the model match `^[A-Za-z0-9_-]{1,64}$`.
 const MAX_TOOL_NAME: usize = 64;
 /// Characters of a tool's arguments and of its answer shown in the chat.
-const ARGS_PREVIEW: usize = 200;
-const TEXT_PREVIEW: usize = 400;
+pub(crate) const ARGS_PREVIEW: usize = 200;
+pub(crate) const TEXT_PREVIEW: usize = 400;
 
 /// The event the chat in a window listens to.
 const EVENT: &str = "assistant-event";
@@ -65,7 +73,7 @@ const KEY_REJECTED: &str = "The API key was rejected. Check it in MCP settings."
 const RATE_LIMITED: &str = "Rate limited by the Anthropic API. Try again in a moment.";
 const UNREACHABLE: &str = "Could not reach the Anthropic API.";
 const BROKE_OFF: &str = "The connection to the Anthropic API broke off.";
-const LIMIT: &str = "The assistant stopped after 12 rounds of tool calls. Send another message to let it go on.";
+pub(crate) const LIMIT: &str = "The assistant stopped after 12 rounds of tool calls. Send another message to let it go on.";
 const INTERNAL: &str = "The assistant stopped because of an internal error. Try again.";
 const WINDOW_CLOSED: &str = "The document window was closed.";
 // what the model reads for a tool call that was not run
@@ -75,34 +83,77 @@ const OUT_OF_ROUNDS: &str = "Not run: the assistant reached its limit of 12 roun
 
 // -------------------------------------------------------------------- config
 
+/// Who answers: the user's Claude Code CLI on their Claude subscription, or the Anthropic API
+/// with their key.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Engine {
+    ClaudeCode,
+    ApiKey,
+}
+
 /// What `assistant.json` holds. No `Debug`: it carries the API key.
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Config {
     api_key: String,
+    /// the API's model
     model: String,
+    /// None until the user picks one; see `engine()`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engine: Option<Engine>,
+    /// Claude Code's model: a CLI alias (`sonnet`, `opus`, `haiku`) or a full name
+    claude_model: String,
+    /// where `claude` is when it is not found on its own; not in the UI
+    #[serde(skip_serializing_if = "Option::is_none")]
+    claude_path: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { api_key: String::new(), model: DEFAULT_MODEL.into() }
+        Config {
+            api_key: String::new(),
+            model: DEFAULT_MODEL.into(),
+            engine: None,
+            claude_model: DEFAULT_CLAUDE_MODEL.into(),
+            claude_path: None,
+        }
     }
 }
 
 /// What the webview may know about the settings: the key's last four characters, never the key.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Status {
+    /// the engine has what it needs: a key, or a `claude` that was found
     pub configured: bool,
     pub key_hint: Option<String>,
+    /// the API's model
     pub model: String,
+    pub engine: Engine,
+    pub claude_model: String,
+    pub claude: ClaudeStatus,
 }
 
 impl Config {
-    fn status(&self) -> Status {
+    /// The engine the user picked; until then Claude Code when it is installed and no key is
+    /// saved, else the API.
+    fn engine(&self, claude_found: bool) -> Engine {
+        self.engine.unwrap_or(match claude_found && self.api_key.is_empty() {
+            true => Engine::ClaudeCode,
+            false => Engine::ApiKey,
+        })
+    }
+
+    fn status(&self, claude: ClaudeStatus) -> Status {
         let chars: Vec<char> = self.api_key.chars().collect();
         // a short key would give most of itself away
         let key_hint = (chars.len() > 8).then(|| chars[chars.len() - 4..].iter().collect());
-        Status { configured: !self.api_key.is_empty(), key_hint, model: self.model.clone() }
+        let engine = self.engine(claude.found);
+        let configured = match engine {
+            Engine::ApiKey => !self.api_key.is_empty(),
+            Engine::ClaudeCode => claude.found,
+        };
+        Status { configured, key_hint, model: self.model.clone(), engine, claude_model: self.claude_model.clone(), claude }
     }
 }
 
@@ -131,6 +182,9 @@ fn read_config(path: &Path) -> Config {
     if config.model.trim().is_empty() {
         config.model = DEFAULT_MODEL.into();
     }
+    if config.claude_model.trim().is_empty() {
+        config.claude_model = DEFAULT_CLAUDE_MODEL.into();
+    }
     config
 }
 
@@ -144,6 +198,8 @@ struct Chat {
     history: Vec<Value>,
     /// the message being answered
     running: Option<Run>,
+    /// where Claude Code's next message goes
+    session: Session,
 }
 
 struct Run {
@@ -160,7 +216,14 @@ pub(crate) struct Begun {
     /// how long the history was before the user's message
     pub(crate) before: usize,
     pub(crate) key: String,
+    /// the engine's model
     pub(crate) model: String,
+    pub(crate) engine: Engine,
+    /// the user's message, trimmed
+    pub(crate) text: String,
+    /// Claude Code: the `claude` found, and where the message goes
+    pub(crate) claude: Option<PathBuf>,
+    pub(crate) session: Session,
 }
 
 /// The settings, read from the file whenever they are needed, and the chat of every window;
@@ -172,15 +235,30 @@ pub struct Assistant {
     /// by window label
     chats: Mutex<HashMap<String, Chat>>,
     next_run: AtomicU64,
+    /// where `claude` is, and its version
+    claude: claude_code::Local,
 }
 
 impl Assistant {
     pub fn load() -> Assistant {
-        Assistant::at(config_path())
+        Assistant { claude: claude_code::Local::search(), ..Assistant::at(config_path()) }
     }
 
+    /// Settings in `file`, and no `claude` anywhere.
     pub(crate) fn at(file: CmdResult<PathBuf>) -> Assistant {
-        Assistant { file, saving: Mutex::new(()), chats: Mutex::new(HashMap::new()), next_run: AtomicU64::new(0) }
+        Assistant {
+            file,
+            saving: Mutex::new(()),
+            chats: Mutex::new(HashMap::new()),
+            next_run: AtomicU64::new(0),
+            claude: claude_code::Local::fixed(None),
+        }
+    }
+
+    /// `claude` is `bin`, or missing.
+    #[cfg(test)]
+    pub(crate) fn with_claude(self, bin: Option<PathBuf>) -> Assistant {
+        Assistant { claude: claude_code::Local::fixed(bin), ..self }
     }
 
     fn config(&self) -> Config {
@@ -195,45 +273,70 @@ impl Assistant {
         files::write_private(path, json.as_bytes()).map_err(failed)
     }
 
+    /// May run `claude --version` (once per app run): not on the main thread.
     pub fn status(&self) -> Status {
-        self.config().status()
+        self.status_of(self.config())
     }
 
-    /// `api_key` None (or blank) keeps the saved key.
-    pub fn save(&self, api_key: Option<String>, model: String) -> CmdResult<Status> {
+    fn status_of(&self, config: Config) -> Status {
+        let claude = self.claude.status(config.claude_path.as_deref());
+        config.status(claude)
+    }
+
+    /// `api_key` None (or blank) keeps the saved key. `engine` None keeps the engine and makes
+    /// `model` the API's model; otherwise `model` is that engine's.
+    pub fn save(&self, api_key: Option<String>, model: String, engine: Option<Engine>) -> CmdResult<Status> {
         let model = model.trim();
         if model.is_empty() {
             return Err(NO_MODEL.into());
         }
-        let _turn = self.saving.lock_recovering();
+        if engine == Some(Engine::ClaudeCode) {
+            claude_code::check_model(model)?;
+        }
+        let turn = self.saving.lock_recovering();
         let mut config = self.config();
         if let Some(key) = api_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()) {
             config.api_key = key;
         }
-        config.model = model.to_string();
+        match engine {
+            Some(Engine::ClaudeCode) => config.claude_model = model.to_string(),
+            _ => config.model = model.to_string(),
+        }
+        config.engine = engine.or(config.engine);
         self.write(&config)?;
-        Ok(config.status())
+        drop(turn);
+        Ok(self.status_of(config))
     }
 
     pub fn clear_key(&self) -> CmdResult<Status> {
-        let _turn = self.saving.lock_recovering();
+        let turn = self.saving.lock_recovering();
         let mut config = self.config();
         config.api_key.clear();
         self.write(&config)?;
-        Ok(config.status())
+        drop(turn);
+        Ok(self.status_of(config))
     }
 
-    /// Takes the user's message in window `label`, if there is a key and the window's chat is
-    /// not answering another one, and marks the chat busy until `finish`.
+    /// Takes the user's message in window `label`, if the engine has what it needs (a key, or
+    /// `claude`) and the window's chat is not answering another one, and marks the chat busy
+    /// until `finish`.
     pub(crate) fn begin(&self, label: &str, text: &str) -> CmdResult<Begun> {
         let text = text.trim();
         if text.is_empty() {
             return Err(NO_TEXT.into());
         }
         let config = self.config();
-        if config.api_key.is_empty() {
-            return Err(NO_KEY.into());
-        }
+        let claude = self.claude.find(config.claude_path.as_deref());
+        let engine = config.engine(claude.is_some());
+        let (key, model) = match engine {
+            Engine::ApiKey if config.api_key.is_empty() => return Err(NO_KEY.into()),
+            Engine::ApiKey => (config.api_key, config.model),
+            Engine::ClaudeCode if claude.is_none() => return Err(claude_code::NOT_FOUND.into()),
+            Engine::ClaudeCode => {
+                claude_code::check_model(&config.claude_model)?;
+                (String::new(), config.claude_model)
+            }
+        };
         let mut chats = self.chats.lock_recovering();
         let chat = chats.entry(label.to_string()).or_default();
         if chat.running.is_some() {
@@ -244,8 +347,33 @@ impl Assistant {
         chat.running = Some(Run { id, cancel: cancel.clone() });
         let mut history = std::mem::take(&mut chat.history);
         let before = history.len();
-        history.push(json!({ "role": "user", "content": text }));
-        Ok(Begun { id, cancel, history, before, key: config.api_key, model: config.model })
+        // Claude Code keeps its own conversation; the API's waits for the engine to come back
+        if engine == Engine::ApiKey {
+            history.push(json!({ "role": "user", "content": text }));
+        }
+        let session = chat.session.clone();
+        Ok(Begun { id, cancel, history, before, key, model, engine, text: text.into(), claude, session })
+    }
+
+    /// Claude Code's next message in window `label` goes on in a copy of session `id`.
+    pub(crate) fn continue_session(&self, label: &str, id: &str) -> CmdResult<()> {
+        claude_code::check_session_id(id)?;
+        let mut chats = self.chats.lock_recovering();
+        let chat = chats.entry(label.to_string()).or_default();
+        if chat.running.is_some() {
+            return Err(BUSY.into());
+        }
+        chat.session = Session::Fork(id.into());
+        Ok(())
+    }
+
+    /// Where Claude Code's next message goes once message `id` is over; dropped when the chat
+    /// was reset meanwhile.
+    pub(crate) fn keep_session(&self, label: &str, id: u64, session: Session) {
+        let mut chats = self.chats.lock_recovering();
+        if let Some(chat) = chats.get_mut(label).filter(|c| c.running.as_ref().is_some_and(|r| r.id == id)) {
+            chat.session = session;
+        }
     }
 
     /// Message `id` is over: its conversation is kept and the chat takes the next message.
@@ -774,7 +902,7 @@ fn without_tool_blocks(messages: &Value) -> Value {
 }
 
 /// A tool result's content, which is text or a list of text blocks.
-fn result_text(content: &Value) -> String {
+pub(crate) fn result_text(content: &Value) -> String {
     match content.as_array() {
         Some(blocks) => blocks.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
         None => content.as_str().unwrap_or_default().to_string(),
@@ -784,14 +912,14 @@ fn result_text(content: &Value) -> String {
 // ------------------------------------------------------------- the worker
 
 /// What came with a message besides its text.
-struct Ask {
+pub(crate) struct Ask {
     /// the text the user added with "+ Selection"
-    context: Option<String>,
+    pub(crate) context: Option<String>,
     /// the server picked with an @mention: only its tools are offered, with the document's
     /// own tools unless those are switched off
-    only: Option<String>,
+    pub(crate) only: Option<String>,
     /// the built-in document server is switched on
-    builtin: bool,
+    pub(crate) builtin: bool,
 }
 
 /// Document tools run in the window that asked; the others on the user's MCP servers.
@@ -816,7 +944,7 @@ impl ToolRunner for AppTools<'_> {
 
 /// Runs a document tool in window `label`. `call_in_window` opens a window that is missing, but
 /// a chat whose window closed must not bring it back.
-fn in_window(app: &AppHandle, label: &str, tool: &str, args: &Value) -> Result<String, String> {
+pub(crate) fn in_window(app: &AppHandle, label: &str, tool: &str, args: &Value) -> Result<String, String> {
     if app.get_webview_window(label).is_none() {
         return Err(WINDOW_CLOSED.into());
     }
@@ -852,7 +980,7 @@ fn converse(
 /// answer ends: done, stopped, failed or panicked. The closing `done` or `error` goes out once
 /// the chat is free, so the next message can follow it at once; a chat that was reset
 /// meanwhile hears nothing more from this answer.
-fn settle(
+pub(crate) fn settle(
     assistant: &Assistant,
     label: &str,
     mut run: Begun,
@@ -890,27 +1018,35 @@ fn answer(app: AppHandle, label: String, run: Begun, ask: Ask) {
     let send = |event: Event| {
         let _ = app.emit_to(label.as_str(), EVENT, event);
     };
-    settle(&app.state::<AppState>().assistant, &label, run, &send, |run, history, emit| {
-        converse(&app, &label, run, &ask, history, emit)
+    settle(&app.state::<AppState>().assistant, &label, run, &send, |run, history, emit| match run.engine {
+        Engine::ApiKey => converse(&app, &label, run, &ask, history, emit),
+        Engine::ClaudeCode => claude_code::converse(&app, &label, run, &ask, emit),
     });
 }
 
 // ---------------------------------------------------------------- commands
 
-#[tauri::command]
-pub fn assistant_status(state: State<AppState>) -> Status {
-    state.assistant.status()
-}
-
-/// `api_key` None keeps the saved key.
-#[tauri::command]
-pub fn assistant_save(api_key: Option<String>, model: String, state: State<AppState>) -> CmdResult<Status> {
-    state.assistant.save(api_key, model)
+/// Runs `f` off the main thread: the status may run `claude --version`.
+async fn with_assistant<T: Send + 'static>(app: AppHandle, f: impl FnOnce(&Assistant) -> T + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(move || f(&app.state::<AppState>().assistant))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))
 }
 
 #[tauri::command]
-pub fn assistant_clear_key(state: State<AppState>) -> CmdResult<Status> {
-    state.assistant.clear_key()
+pub async fn assistant_status(app: AppHandle) -> CmdResult<Status> {
+    with_assistant(app, |a| a.status()).await
+}
+
+/// `api_key` None keeps the saved key; `engine` None keeps the engine (`model` is then the API's).
+#[tauri::command]
+pub async fn assistant_save(api_key: Option<String>, model: String, engine: Option<Engine>, app: AppHandle) -> CmdResult<Status> {
+    with_assistant(app, move |a| a.save(api_key, model, engine)).await?
+}
+
+#[tauri::command]
+pub async fn assistant_clear_key(app: AppHandle) -> CmdResult<Status> {
+    with_assistant(app, |a| a.clear_key()).await?
 }
 
 /// Returns at once; the answer comes as `assistant-event`s to this window.

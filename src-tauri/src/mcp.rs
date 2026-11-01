@@ -6,8 +6,14 @@
 //! `handle_message`, so the tools behave the same everywhere. The document lives in the
 //! webview's editor, so every tool call is forwarded to the window that last had focus
 //! (`calls::call_in_window`), which runs it as one undo step the user sees happen.
+//!
+//! The Assistant's Claude Code engine reaches the document tools over HTTP too, through a
+//! listener of its own (`Lease`): a port the OS picks, a new token for each run that is never
+//! saved, and calls that run in the window of the chat that asked. It works while Serve DocBro
+//! is off, and the user's token gets nothing there.
 
 use std::{
+    collections::HashMap,
     fs,
     io::{self, BufRead, Read, Write},
     net::{SocketAddr, TcpStream},
@@ -93,19 +99,56 @@ impl Config {
 
 // ------------------------------------------------------------------- runtime
 
+/// Who made a request, by the token it carries.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Caller {
+    /// an AI client the user connected, with the user's token
+    External,
+    /// the Assistant's Claude Code run for the chat in this window
+    Assistant(String),
+}
+
 /// Where tool calls go, so the server can run against a test double. `Err` is a refusal or
 /// failure the AI gets to read.
 pub(crate) trait Host: Send + Sync + 'static {
-    fn call(&self, name: &str, args: &Value) -> Result<String, String>;
+    fn call(&self, caller: &Caller, name: &str, args: &Value) -> Result<String, String>;
 }
 
-/// Runs every tool in the window that last had focus, opening one when none is left.
+/// Runs an external client's tool in the window that last had focus, opening one when none is
+/// left, and the Assistant's in the window of its chat, which is never opened again.
 pub struct TauriHost(pub AppHandle);
 
 impl Host for TauriHost {
-    fn call(&self, name: &str, args: &Value) -> Result<String, String> {
-        let label = self.0.state::<AppState>().active_label();
-        calls::call_in_window(&self.0, &label, name, args, calls::Origin::External)
+    fn call(&self, caller: &Caller, name: &str, args: &Value) -> Result<String, String> {
+        match caller {
+            Caller::External => {
+                let label = self.0.state::<AppState>().active_label();
+                calls::call_in_window(&self.0, &label, name, args, calls::Origin::External)
+            }
+            Caller::Assistant(label) => crate::assistant::in_window(&self.0, label, name, args),
+        }
+    }
+}
+
+/// The tokens a listener takes.
+#[derive(Clone)]
+enum Keys {
+    /// the user's token, for the clients they connected (Serve DocBro)
+    User(Arc<Mutex<String>>),
+    /// the token of each Claude Code run, and the window label of its chat
+    Assistant(Arc<Mutex<HashMap<String, String>>>),
+}
+
+impl Keys {
+    fn caller(&self, auth: Option<&str>) -> Option<Caller> {
+        match self {
+            Keys::User(token) => bearer_ok(auth, &token.lock_recovering()).then_some(Caller::External),
+            Keys::Assistant(tokens) => tokens
+                .lock_recovering()
+                .iter()
+                .find(|(token, _)| bearer_ok(auth, token))
+                .map(|(_, label)| Caller::Assistant(label.clone())),
+        }
     }
 }
 
@@ -118,12 +161,7 @@ struct Running {
 
 impl Running {
     /// Listens on `port`. While the port is in use, it tries again for up to `patience`.
-    fn start<H: Host>(
-        host: Arc<H>,
-        port: u16,
-        token: Arc<Mutex<String>>,
-        patience: Duration,
-    ) -> CmdResult<Running> {
+    fn start<H: Host>(host: Arc<H>, port: u16, keys: Keys, patience: Duration) -> CmdResult<Running> {
         let deadline = Instant::now() + patience;
         let server = loop {
             let e = match Server::http(("127.0.0.1", port)) {
@@ -149,10 +187,10 @@ impl Running {
         let accept = server.clone();
         let thread = std::thread::spawn(move || {
             for req in accept.incoming_requests() {
-                let (host, token) = (host.clone(), token.clone());
+                let (host, keys) = (host.clone(), keys.clone());
                 // one thread per request: a client stalling mid-body, or a tool waiting for the
                 // window to answer, must not block the others
-                std::thread::spawn(move || handle_http(&*host, &token, bound, req));
+                std::thread::spawn(move || handle_http(&*host, &keys, bound, req));
             }
         });
         Ok(Running { server, thread: Some(thread), port: bound })
@@ -168,6 +206,51 @@ impl Drop for Running {
     }
 }
 
+/// The Claude Code engine's way in to the document tools: listening only while a run holds a
+/// `Lease`.
+#[derive(Default)]
+struct AssistantDoor {
+    tokens: Arc<Mutex<HashMap<String, String>>>,
+    /// a token is only ever added or taken with this held, so the listener stops with the last
+    running: Mutex<Option<Running>>,
+}
+
+/// One Claude Code run's access to the document tools of its chat's window. Dropping it ends
+/// the access.
+pub(crate) struct Lease {
+    door: Arc<AssistantDoor>,
+    token: String,
+    port: u16,
+}
+
+impl Lease {
+    #[cfg(test)]
+    pub(crate) fn port(&self) -> u16 {
+        self.port
+    }
+    pub(crate) fn url(&self) -> String {
+        format!("http://127.0.0.1:{}/mcp", self.port)
+    }
+    /// A secret: it only goes into the run's private MCP config file.
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        let mut running = self.door.running.lock_recovering();
+        let mut tokens = self.door.tokens.lock_recovering();
+        tokens.remove(&self.token);
+        let last = tokens.is_empty();
+        drop(tokens);
+        let stopped = if last { running.take() } else { None };
+        drop(running);
+        // stopping waits for the listener's thread: done with no lock held
+        drop(stopped);
+    }
+}
+
 /// Settings plus the live server; kept in `AppState`.
 pub struct Runtime {
     config: Config,
@@ -176,6 +259,7 @@ pub struct Runtime {
     token: Arc<Mutex<String>>,
     running: Option<Running>,
     error: Option<String>,
+    assistant: Arc<AssistantDoor>,
 }
 
 #[derive(Serialize)]
@@ -207,6 +291,7 @@ impl Runtime {
             file,
             running: None,
             error: None,
+            assistant: Arc::default(),
         }
     }
 
@@ -245,7 +330,7 @@ impl Runtime {
         // it. The OS frees the port a moment after, so a restart there waits for it a little.
         let old_port = self.running.take().map(|old| old.port);
         let patience = if old_port == Some(port) { REBIND_PATIENCE } else { Duration::ZERO };
-        let running = Running::start(host, port, self.token.clone(), patience)?;
+        let running = Running::start(host, port, Keys::User(self.token.clone()), patience)?;
         self.config.enabled = true;
         self.config.port = running.port;
         self.save()?;
@@ -259,6 +344,21 @@ impl Runtime {
         self.error = None;
         self.config.enabled = false;
         self.save()
+    }
+
+    /// Lets a Claude Code run for the chat in window `label` use the document tools, until the
+    /// lease is dropped.
+    pub(crate) fn lease<H: Host>(&self, host: Arc<H>, label: &str) -> CmdResult<Lease> {
+        let door = &self.assistant;
+        let mut running = door.running.lock_recovering();
+        if running.is_none() {
+            // port 0: the OS picks a free one, so Serve DocBro's port and other apps are never in the way
+            *running = Some(Running::start(host, 0, Keys::Assistant(door.tokens.clone()), Duration::ZERO)?);
+        }
+        let port = running.as_ref().map_or(0, |r| r.port);
+        let token = new_token()?;
+        door.tokens.lock_recovering().insert(token.clone(), label.to_string());
+        Ok(Lease { door: door.clone(), token, port })
     }
 
     fn regenerate_token(&mut self) -> CmdResult<()> {
@@ -374,7 +474,7 @@ fn bearer_ok(auth: Option<&str>, token: &str) -> bool {
     !b.is_empty() && a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
-fn handle_http<H: Host>(host: &H, token: &Mutex<String>, port: u16, mut req: Request) {
+fn handle_http<H: Host>(host: &H, keys: &Keys, port: u16, mut req: Request) {
     if !host_ok(header(&req, "Host").as_deref(), port) {
         return fail(req, 403, "Forbidden host", &[]);
     }
@@ -383,11 +483,10 @@ fn handle_http<H: Host>(host: &H, token: &Mutex<String>, port: u16, mut req: Req
     if header(&req, "Origin").is_some() {
         return fail(req, 403, "Forbidden origin", &[]);
     }
-    let token = token.lock_recovering().clone();
-    if !bearer_ok(header(&req, "Authorization").as_deref(), &token) {
+    let Some(caller) = keys.caller(header(&req, "Authorization").as_deref()) else {
         let msg = "Missing or wrong access token. Copy the connection settings from the MCP settings in DocBro.";
         return fail(req, 401, msg, &[("WWW-Authenticate", "Bearer realm=\"DocBro\"")]);
-    }
+    };
     if req.url().split('?').next() != Some("/mcp") {
         return fail(req, 404, "Not found. The MCP endpoint is /mcp", &[]);
     }
@@ -410,10 +509,10 @@ fn handle_http<H: Host>(host: &H, token: &Mutex<String>, port: u16, mut req: Req
             Some(rpc_error(Value::Null, -32600, "Invalid Request"))
         }
         Ok(Value::Array(batch)) => {
-            let replies: Vec<Value> = batch.iter().filter_map(|m| handle_message(host, m)).collect();
+            let replies: Vec<Value> = batch.iter().filter_map(|m| handle_message(host, &caller, m)).collect();
             (!replies.is_empty()).then_some(Value::Array(replies))
         }
-        Ok(msg) => handle_message(host, &msg),
+        Ok(msg) => handle_message(host, &caller, &msg),
     };
     match reply {
         Some(v) => respond(req, 200, v.to_string(), &[]),
@@ -429,7 +528,7 @@ fn rpc_error(id: Value, code: i32, message: &str) -> Value {
 }
 
 /// Answers one JSON-RPC message; `None` for notifications and client responses.
-fn handle_message<H: Host>(host: &H, msg: &Value) -> Option<Value> {
+fn handle_message<H: Host>(host: &H, caller: &Caller, msg: &Value) -> Option<Value> {
     let Some(obj) = msg.as_object() else {
         return Some(rpc_error(Value::Null, -32600, "Invalid Request"));
     };
@@ -448,7 +547,7 @@ fn handle_message<H: Host>(host: &H, msg: &Value) -> Option<Value> {
         "initialize" => Ok(initialize(params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_defs() })),
-        "tools/call" => call_tool(host, params),
+        "tools/call" => call_tool(host, caller, params),
         _ => Err((-32601, format!("Method not found: {method}"))),
     };
     Some(match result {
@@ -474,7 +573,7 @@ fn initialize(params: &Value) -> Value {
     })
 }
 
-fn call_tool<H: Host>(host: &H, params: &Value) -> Result<Value, (i32, String)> {
+fn call_tool<H: Host>(host: &H, caller: &Caller, params: &Value) -> Result<Value, (i32, String)> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
@@ -484,7 +583,7 @@ fn call_tool<H: Host>(host: &H, params: &Value) -> Result<Value, (i32, String)> 
     }
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     // Tool failures are results, not protocol errors, so the model sees them and can retry
-    Ok(match guarded(|| host.call(name, &args)) {
+    Ok(match guarded(|| host.call(caller, name, &args)) {
         Ok(text) => tool_result(text, false),
         Err(text) => tool_result(text, true),
     })
@@ -782,12 +881,16 @@ mod tests {
     /// Records every call that reaches it and answers with canned text.
     struct TestHost {
         calls: Mutex<Vec<(String, Value)>>,
+        callers: Mutex<Vec<Caller>>,
         reply: Result<String, String>,
     }
 
     impl TestHost {
         fn answering(reply: Result<String, String>) -> Arc<TestHost> {
-            Arc::new(TestHost { calls: Mutex::new(Vec::new()), reply })
+            Arc::new(TestHost { calls: Mutex::new(Vec::new()), callers: Mutex::new(Vec::new()), reply })
+        }
+        fn callers(&self) -> Vec<Caller> {
+            self.callers.lock().unwrap().clone()
         }
         fn new() -> Arc<TestHost> {
             TestHost::answering(Ok("done".into()))
@@ -798,7 +901,8 @@ mod tests {
     }
 
     impl Host for TestHost {
-        fn call(&self, name: &str, args: &Value) -> Result<String, String> {
+        fn call(&self, caller: &Caller, name: &str, args: &Value) -> Result<String, String> {
+            self.callers.lock().unwrap().push(caller.clone());
             self.calls.lock().unwrap().push((name.to_string(), args.clone()));
             self.reply.clone()
         }
@@ -810,7 +914,7 @@ mod tests {
 
     /// Calls a tool through the JSON-RPC layer; returns (is_error, text).
     fn call(host: &TestHost, name: &str, args: Value) -> (bool, String) {
-        let reply = handle_message(host, &tools_call(1, json!({ "name": name, "arguments": args }))).unwrap();
+        let reply = handle_message(host, &Caller::External, &tools_call(1, json!({ "name": name, "arguments": args }))).unwrap();
         let result = &reply["result"];
         (result["isError"].as_bool().unwrap(), result["content"][0]["text"].as_str().unwrap().to_string())
     }
@@ -845,7 +949,7 @@ mod tests {
     fn handshake_negotiates_protocol_version() {
         let host = TestHost::new();
         let init = |v: &str| {
-            handle_message(&*host, &json!({ "jsonrpc": "2.0", "id": 7, "method": "initialize", "params": { "protocolVersion": v } }))
+            handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "id": 7, "method": "initialize", "params": { "protocolVersion": v } }))
                 .unwrap()
         };
         let reply = init("2025-03-26");
@@ -858,13 +962,13 @@ mod tests {
         assert_eq!(init("1999-01-01")["result"]["protocolVersion"], PROTOCOLS[0]);
 
         // notifications and stray responses get no answer; unknown methods do
-        assert!(handle_message(&*host, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
-        assert!(handle_message(&*host, &json!({ "jsonrpc": "2.0", "id": 1, "result": {} })).is_none());
-        let missing = handle_message(&*host, &json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list" })).unwrap();
+        assert!(handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
+        assert!(handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "id": 1, "result": {} })).is_none());
+        let missing = handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list" })).unwrap();
         assert_eq!(missing["error"]["code"], -32601);
-        let ping = handle_message(&*host, &json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" })).unwrap();
+        let ping = handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" })).unwrap();
         assert_eq!(ping["result"], json!({}));
-        let list = handle_message(&*host, &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/list" })).unwrap();
+        let list = handle_message(&*host, &Caller::External, &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/list" })).unwrap();
         assert_eq!(list["result"]["tools"].as_array().unwrap().len(), TOOL_NAMES.len());
         assert!(host.seen().is_empty());
     }
@@ -874,7 +978,7 @@ mod tests {
         let host = TestHost::new();
         assert_eq!(call(&host, "read_document", json!({ "from": 2 })), (false, "done".to_string()));
         // no arguments at all reach the webview as an empty object
-        handle_message(&*host, &tools_call(2, json!({ "name": "undo" }))).unwrap();
+        handle_message(&*host, &Caller::External, &tools_call(2, json!({ "name": "undo" }))).unwrap();
         assert_eq!(
             host.seen(),
             vec![("read_document".to_string(), json!({ "from": 2 })), ("undo".to_string(), json!({}))]
@@ -882,7 +986,7 @@ mod tests {
 
         // a refusal from the webview is a tool result the model can read, not a protocol error
         let refusing = TestHost::answering(Err("x".into()));
-        let reply = handle_message(&*refusing, &tools_call(3, json!({ "name": "delete_blocks", "arguments": { "from": 9 } })))
+        let reply = handle_message(&*refusing, &Caller::External, &tools_call(3, json!({ "name": "delete_blocks", "arguments": { "from": 9 } })))
             .unwrap();
         assert!(reply.get("error").is_none(), "{reply}");
         assert_eq!(reply["result"]["isError"], true);
@@ -892,13 +996,13 @@ mod tests {
     #[test]
     fn unknown_tools_never_reach_the_host() {
         let host = TestHost::new();
-        let unknown = handle_message(&*host, &tools_call(4, json!({ "name": "nope" }))).unwrap();
+        let unknown = handle_message(&*host, &Caller::External, &tools_call(4, json!({ "name": "nope" }))).unwrap();
         assert_eq!(unknown["error"]["code"], -32602);
         assert!(unknown["error"]["message"].as_str().unwrap().contains("nope"));
         // a spreadsheet tool from the sibling app is just as unknown here
-        let sheet = handle_message(&*host, &tools_call(5, json!({ "name": "read_range" }))).unwrap();
+        let sheet = handle_message(&*host, &Caller::External, &tools_call(5, json!({ "name": "read_range" }))).unwrap();
         assert_eq!(sheet["error"]["code"], -32602);
-        let nameless = handle_message(&*host, &tools_call(6, json!({ "arguments": {} }))).unwrap();
+        let nameless = handle_message(&*host, &Caller::External, &tools_call(6, json!({ "arguments": {} }))).unwrap();
         assert_eq!(nameless["error"]["code"], -32602);
         assert!(host.seen().is_empty());
     }
@@ -932,7 +1036,7 @@ mod tests {
     const TOKEN: &str = "t0ken";
 
     fn start(host: &Arc<TestHost>) -> (Running, u16) {
-        let running = Running::start(host.clone(), 0, Arc::new(Mutex::new(TOKEN.into())), Duration::ZERO).unwrap();
+        let running = Running::start(host.clone(), 0, Keys::User(Arc::new(Mutex::new(TOKEN.into()))), Duration::ZERO).unwrap();
         let port = running.port;
         (running, port)
     }
@@ -1129,7 +1233,7 @@ mod tests {
     fn rejects_a_port_that_is_taken() {
         let host = TestHost::new();
         let (_server, port) = start(&host);
-        let err = Running::start(host.clone(), port, Arc::new(Mutex::new(TOKEN.into())), Duration::ZERO)
+        let err = Running::start(host.clone(), port, Keys::User(Arc::new(Mutex::new(TOKEN.into()))), Duration::ZERO)
             .err()
             .unwrap();
         assert!(err.contains("already in use"), "{err}");
@@ -1153,6 +1257,100 @@ mod tests {
         assert_eq!((old.port, old.token.as_str()), (DEFAULT_PORT, ""));
         assert_eq!(DEFAULT_PORT, 7425);
         assert!(config_path().unwrap().ends_with("com.jetorbit.docbro/mcp.json"));
+    }
+
+
+    /// Whether nothing listens on `port` any more (tiny_http lets go a moment after a stop).
+    fn closes(port: u16) -> bool {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        (0..40).any(|_| {
+            std::thread::sleep(Duration::from_millis(50));
+            TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_err()
+        })
+    }
+
+    const UNDO: &str = r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"undo"}}"#;
+
+    fn bearer(token: &str) -> String {
+        format!("Authorization: Bearer {token}\r\n")
+    }
+
+    #[test]
+    fn assistant_token_calls_are_marked_assistant_and_work_while_serve_is_off() {
+        let host = TestHost::new();
+        let path = tmp("lease/mcp.json");
+        let _ = fs::remove_file(&path);
+        let rt = Runtime::at(Ok(path.clone()));
+        assert!(!rt.status().enabled && !rt.status().running);
+        let lease = rt.lease(host.clone(), "doc-1").unwrap();
+        let other = rt.lease(host.clone(), "doc-2").unwrap();
+        // one listener for every run, a token of its own for each, never the user's
+        let port = lease.port();
+        assert_eq!(other.port(), port);
+        assert_ne!(lease.token(), other.token());
+        assert_eq!(lease.token().len(), 48);
+        assert_ne!(lease.token(), rt.config.token);
+        assert_eq!(lease.url(), format!("http://127.0.0.1:{port}/mcp"));
+
+        let (status, body) = raw(port, &request("POST", "/mcp", port, &bearer(lease.token()), UNDO));
+        assert_eq!(status, 200);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["content"][0]["text"], "done");
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &bearer(other.token()), UNDO)).0, 200);
+        // each call runs in the window of the chat that holds the token, as the assistant's
+        assert_eq!(host.callers(), [Caller::Assistant("doc-1".into()), Caller::Assistant("doc-2".into())]);
+
+        // every guard stays: no token, a browser page, a rebinding host name
+        assert_eq!(raw(port, &request("POST", "/mcp", port, "", UNDO)).0, 401);
+        let page = format!("{}Origin: https://evil.example\r\n", bearer(lease.token()));
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &page, UNDO)).0, 403);
+        let rebound = format!(
+            "POST /mcp HTTP/1.1\r\nHost: evil.example:{port}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{UNDO}",
+            bearer(lease.token()),
+            UNDO.len()
+        );
+        assert_eq!(raw(port, rebound.as_bytes()).0, 403);
+        assert_eq!(host.callers().len(), 2);
+        // Serve DocBro is still off, and the token was never saved
+        assert!(!rt.status().enabled && !rt.status().running);
+        assert!(!fs::read_to_string(&path).unwrap_or_default().contains(lease.token()));
+
+        // a run that is over takes its token with it; the last one closes the listener
+        let gone = lease.token().to_string();
+        drop(lease);
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &bearer(&gone), UNDO)).0, 401);
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &bearer(other.token()), UNDO)).0, 200);
+        drop(other);
+        assert!(closes(port), "port {port} still accepts connections");
+        // and the next run opens it again
+        let again = rt.lease(host.clone(), "doc-1").unwrap();
+        let port = again.port();
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &bearer(again.token()), UNDO)).0, 200);
+    }
+
+    #[test]
+    fn user_token_is_refused_while_serve_is_off() {
+        let host = TestHost::new();
+        let mut rt = Runtime::at(Ok(tmp("user-token/mcp.json")));
+        let lease = rt.lease(host.clone(), "main").unwrap();
+        let port = lease.port();
+        let user = bearer(&rt.config.token.clone());
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &user, UNDO)).0, 401);
+
+        // with Serve DocBro on, each listener still takes only its own token
+        rt.enable(host.clone(), 0).unwrap();
+        let served = rt.status().port;
+        assert_ne!(served, port);
+        assert_eq!(raw(served, &request("POST", "/mcp", served, &user, UNDO)).0, 200);
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &user, UNDO)).0, 401);
+        assert_eq!(raw(served, &request("POST", "/mcp", served, &bearer(lease.token()), UNDO)).0, 401);
+        assert_eq!(host.callers(), [Caller::External]);
+
+        // off again: the user's token gets nowhere, the chat's still works
+        rt.disable().unwrap();
+        assert!(closes(served), "port {served} still accepts connections");
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &user, UNDO)).0, 401);
+        assert_eq!(raw(port, &request("POST", "/mcp", port, &bearer(lease.token()), UNDO)).0, 200);
+        assert_eq!(host.callers(), [Caller::External, Caller::Assistant("main".into())]);
     }
 
     #[test]

@@ -246,6 +246,11 @@ impl Servers {
         self.registry.lock_recovering()
     }
 
+    /// Every server's settings, secrets included: for the private MCP config of a Claude Code run.
+    pub(crate) fn configs(&self) -> Vec<ServerConfig> {
+        self.lock().entries.iter().map(|e| e.config.clone()).collect()
+    }
+
     pub fn views(&self) -> Vec<ServerView> {
         self.lock().entries.iter().map(Entry::view).collect()
     }

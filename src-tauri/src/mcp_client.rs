@@ -22,7 +22,7 @@ use crate::{mcp::PROTOCOLS, LockExt};
 /// The most DocBro reads for one message: an HTTP response, or one line from a stdio server.
 const MAX_MESSAGE: u64 = 4 * 1024 * 1024;
 /// How much of a stdio server's stderr is kept to explain a failure.
-const STDERR_TAIL: usize = 4096;
+pub(crate) const STDERR_TAIL: usize = 4096;
 /// A server whose tool list goes on for more pages than this is treated as broken.
 const MAX_PAGES: usize = 50;
 /// Environment variables a stdio server gets from DocBro; everything else it needs is
@@ -111,7 +111,7 @@ impl ServerSpec {
 
     /// Text to scrub from every message: each value, and each long word in it (the token of
     /// `Bearer <token>`, which a server may echo on its own). Longest first.
-    fn secret_values(&self) -> Vec<String> {
+    pub(crate) fn secret_values(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for value in self.secrets().values() {
             out.push(value.clone());
@@ -225,7 +225,7 @@ pub fn connect_with(label: &str, spec: &ServerSpec, timeouts: Timeouts) -> Resul
     Ok(Box::new(client))
 }
 
-fn redact(text: &str, secrets: &[String]) -> String {
+pub(crate) fn redact(text: &str, secrets: &[String]) -> String {
     secrets.iter().fold(text.to_string(), |t, s| t.replace(s.as_str(), "[hidden]"))
 }
 
@@ -631,6 +631,14 @@ fn child_path(
     std::env::join_paths(&dirs).unwrap_or_else(|_| inherited.to_os_string())
 }
 
+/// The `PATH` of a child that runs `command`: a stdio server, or Claude Code.
+pub(crate) fn path_for(command: &str) -> OsString {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let nvm = home.as_deref().and_then(newest_nvm_bin);
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    child_path(command, &inherited, home.as_deref(), nvm.as_deref(), &|p| p.is_dir())
+}
+
 /// The `bin` folder of the newest Node.js that nvm installed.
 fn newest_nvm_bin(home: &Path) -> Option<PathBuf> {
     let version = |name: &str| -> Option<Vec<u64>> {
@@ -673,10 +681,7 @@ impl StdioWire {
             }
         }
         // a bare command name is looked up in this PATH too (unix)
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let nvm = home.as_deref().and_then(newest_nvm_bin);
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        cmd.env("PATH", child_path(command, &inherited, home.as_deref(), nvm.as_deref(), &|p| p.is_dir()));
+        cmd.env("PATH", path_for(command));
         cmd.envs(env);
         #[cfg(windows)]
         {
@@ -781,7 +786,7 @@ fn read_messages(out: impl Read, tx: mpsc::SyncSender<Incoming>) {
     }
 }
 
-fn keep_tail(mut err: impl Read, tail: &Mutex<VecDeque<u8>>) {
+pub(crate) fn keep_tail(mut err: impl Read, tail: &Mutex<VecDeque<u8>>) {
     let mut buf = [0u8; 2048];
     while let Ok(n @ 1..) = err.read(&mut buf) {
         let mut tail = tail.lock_recovering();

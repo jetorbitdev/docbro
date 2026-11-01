@@ -24,6 +24,10 @@ getrandom = "0.3"
 percent-encoding = "2"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[target.'cfg(unix)'.dependencies]
+# signals for the Claude Code process group (SIGTERM, then SIGKILL)
+libc = "0.2"
+
 # tiny_http 0.12.0 with one fix: a dropped request no longer allocates the body size the
 # client claimed (see vendor/tiny_http/VENDORED.md)
 [patch.crates-io]

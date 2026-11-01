@@ -61,4 +61,18 @@ describe("api", () => {
     await api.assistantReset();
     expect(invoke).toHaveBeenLastCalledWith("assistant_reset");
   });
+
+  it("passes the engine and the Claude Code session commands by the names Rust expects", async () => {
+    invoke.mockResolvedValue(undefined);
+    await api.assistantSave(null, "opus", "claude_code");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_save", { apiKey: null, model: "opus", engine: "claude_code" });
+    await api.claudeSessions();
+    expect(invoke).toHaveBeenLastCalledWith("claude_sessions");
+    await api.assistantContinue("5d769f48-8925-400b-85a7-6271f82177b2");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_continue", {
+      sessionId: "5d769f48-8925-400b-85a7-6271f82177b2",
+    });
+    await api.assistantTeleport("https://claude.ai/code/session_01ABC");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_teleport", { input: "https://claude.ai/code/session_01ABC" });
+  });
 });

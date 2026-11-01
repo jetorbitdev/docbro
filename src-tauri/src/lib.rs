@@ -1,5 +1,6 @@
 mod assistant;
 mod calls;
+mod claude_code;
 mod files;
 mod mcp;
 mod mcp_client;
@@ -506,11 +507,18 @@ pub fn run() {
             assistant::assistant_send,
             assistant::assistant_cancel,
             assistant::assistant_reset,
+            claude_code::claude_sessions,
+            claude_code::assistant_continue,
+            claude_code::assistant_teleport,
         ])
         .build(tauri::generate_context!())
         .expect("error while building DocBro");
 
     app.run(|handle, event| {
+        // no `claude` outlives DocBro, nor the MCP servers it started
+        if let tauri::RunEvent::Exit = &event {
+            claude_code::stop_all();
+        }
         if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             if hold_quit_for_unsaved_changes(handle) {
                 api.prevent_exit();

@@ -50,11 +50,45 @@ export interface McpStatus {
   error: string | null;
 }
 
+/** Who answers: the user's Claude Code CLI on their Claude subscription, or the Anthropic API with their key. */
+export type AssistantEngine = "claude_code" | "api_key";
+
+/** The `claude` DocBro found. `version` is what `claude --version` said, e.g. "2.1.316". */
+export interface ClaudeStatus {
+  found: boolean;
+  path: string | null;
+  version: string | null;
+}
+
 /** The Assistant's settings as the webview may know them: the API key's last four characters, never the key. */
 export interface AssistantStatus {
+  /** the engine has what it needs: a saved key, or a `claude` that was found */
   configured: boolean;
   key_hint: string | null;
+  /** the API's model */
   model: string;
+  /** the engine picked; until the user picks one, Claude Code when it is found and no key is saved */
+  engine: AssistantEngine;
+  /** Claude Code's model: a CLI alias (`sonnet`, `opus`, `haiku`) or a full name */
+  claude_model: string;
+  claude: ClaudeStatus;
+}
+
+/** A Claude Code session on this Mac, for "Continue a Claude Code session". Newest first. */
+export interface ClaudeSession {
+  id: string;
+  /** its title, or else its first message, cut to 80 characters */
+  title: string;
+  /** the folder it ran in */
+  project: string;
+  /** ISO 8601, UTC */
+  modified: string;
+}
+
+/** A session from Claude Code on the web: DocBro never brings it over itself; the user runs `command` once in Terminal. */
+export interface TeleportOutcome {
+  needs_terminal: boolean;
+  command: string;
 }
 
 /**
@@ -111,9 +145,13 @@ export const api = {
   /** Connects without saving; resolves to the server's tool names. */
   serversTest: (config: ServerConfig) => invoke<string[]>("servers_test", { config }),
   assistantStatus: () => invoke<AssistantStatus>("assistant_status"),
-  /** `apiKey` null keeps the saved key. Rejects when `model` is empty. */
-  assistantSave: (apiKey: string | null, model: string) =>
-    invoke<AssistantStatus>("assistant_save", { apiKey, model }),
+  /**
+   * `apiKey` null keeps the saved key. Without `engine` the engine stays and `model` is the API's;
+   * with it, `engine` is picked and `model` is that engine's. Rejects when `model` is empty (or,
+   * for Claude Code, not a plain model name).
+   */
+  assistantSave: (apiKey: string | null, model: string, engine?: AssistantEngine) =>
+    invoke<AssistantStatus>("assistant_save", engine ? { apiKey, model, engine } : { apiKey, model }),
   assistantClearKey: () => invoke<AssistantStatus>("assistant_clear_key"),
   /**
    * Resolves at once; the answer comes as `assistant-event`s to this window. `context` is the
@@ -127,4 +165,13 @@ export const api = {
   assistantCancel: () => invoke<void>("assistant_cancel"),
   /** Drops this window's conversation and stops its answer, which then sends nothing more. */
   assistantReset: () => invoke<void>("assistant_reset"),
+  /** Recent Claude Code sessions on this Mac, newest first, at most 50. Read only. */
+  claudeSessions: () => invoke<ClaudeSession[]>("claude_sessions"),
+  /**
+   * Claude Code: this window's next message goes on in a copy of the session, which itself stays
+   * as it was. Rejects while the chat is answering, or for an id that is not a plain session id.
+   */
+  assistantContinue: (sessionId: string) => invoke<void>("assistant_continue", { sessionId }),
+  /** Reads a claude.ai/code link or a session id; rejects when it holds no plain session id. */
+  assistantTeleport: (input: string) => invoke<TeleportOutcome>("assistant_teleport", { input }),
 };

@@ -32,7 +32,7 @@ fn assistant(name: &str) -> (Assistant, PathBuf) {
 
 fn configured(name: &str) -> Assistant {
     let (a, _) = assistant(name);
-    a.save(Some(KEY.into()), DEFAULT_MODEL.into()).unwrap();
+    a.save(Some(KEY.into()), DEFAULT_MODEL.into(), None).unwrap();
     a
 }
 
@@ -123,6 +123,18 @@ fn turn(model: &Script, tools: &mut Tools, history: &mut Vec<Value>, cancel: &At
 
 fn roles(history: &[Value]) -> Vec<&str> {
     history.iter().map(|m| m["role"].as_str().unwrap()).collect()
+}
+
+/// The status with the API engine and no `claude` installed.
+fn api_status(configured: bool, key_hint: Option<&str>, model: &str) -> Status {
+    Status {
+        configured,
+        key_hint: key_hint.map(str::to_string),
+        model: model.into(),
+        engine: Engine::ApiKey,
+        claude_model: DEFAULT_CLAUDE_MODEL.into(),
+        claude: ClaudeStatus::default(),
+    }
 }
 
 fn info(name: &str) -> ToolInfo {
@@ -582,7 +594,7 @@ fn a_stream_error_or_a_stream_that_breaks_off_is_an_error() {
 fn missing_key_and_busy_chat_give_the_exact_messages() {
     let (a, _) = assistant("busy");
     assert_eq!(a.begin("main", "Hi").err(), Some("Add your Anthropic API key in MCP settings first.".into()));
-    a.save(Some(KEY.into()), DEFAULT_MODEL.into()).unwrap();
+    a.save(Some(KEY.into()), DEFAULT_MODEL.into(), None).unwrap();
 
     let first = a.begin("main", "Hi").unwrap();
     assert_eq!(first.history, vec![user("Hi")]);
@@ -633,33 +645,33 @@ fn stopping_and_resetting_a_chat() {
 #[test]
 fn assistant_config_is_private_and_status_only_shows_the_last_four() {
     let (a, path) = assistant("config");
-    assert_eq!(a.status(), Status { configured: false, key_hint: None, model: DEFAULT_MODEL.into() });
+    assert_eq!(a.status(), api_status(false, None, DEFAULT_MODEL));
 
-    let status = a.save(Some(format!("  {KEY}\n")), " claude-opus-5-5 ".into()).unwrap();
-    assert_eq!(status, Status { configured: true, key_hint: Some("CRET".into()), model: "claude-opus-5-5".into() });
+    let status = a.save(Some(format!("  {KEY}\n")), " claude-opus-5-5 ".into(), None).unwrap();
+    assert_eq!(status, api_status(true, Some("CRET"), "claude-opus-5-5"));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
     let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(saved, json!({ "api_key": KEY, "model": "claude-opus-5-5" }));
+    assert_eq!(saved, json!({ "api_key": KEY, "model": "claude-opus-5-5", "claude_model": DEFAULT_CLAUDE_MODEL }));
 
     // None (or a blank field) keeps the key; the model is required
-    assert_eq!(a.save(None, "claude-sonnet-5-5".into()).unwrap().key_hint, Some("CRET".into()));
-    assert_eq!(a.save(Some(" ".into()), "claude-sonnet-5-5".into()).unwrap().key_hint, Some("CRET".into()));
-    assert_eq!(a.save(Some("sk-other-key".into()), "  ".into()), Err("Enter a model name.".into()));
+    assert_eq!(a.save(None, "claude-sonnet-5-5".into(), None).unwrap().key_hint, Some("CRET".into()));
+    assert_eq!(a.save(Some(" ".into()), "claude-sonnet-5-5".into(), None).unwrap().key_hint, Some("CRET".into()));
+    assert_eq!(a.save(Some("sk-other-key".into()), "  ".into(), None), Err("Enter a model name.".into()));
     assert_eq!(a.status().key_hint, Some("CRET".into()));
 
     // what the webview gets never holds the key
     let json = serde_json::to_string(&a.status()).unwrap();
     assert!(!json.contains(KEY) && json.contains("\"key_hint\":\"CRET\""), "{json}");
     // a key too short to hide its end gets no hint
-    a.save(Some("abcd1234".into()), "m".into()).unwrap();
-    assert_eq!(a.status(), Status { configured: true, key_hint: None, model: "m".into() });
+    a.save(Some("abcd1234".into()), "m".into(), None).unwrap();
+    assert_eq!(a.status(), api_status(true, None, "m"));
 
     let cleared = a.clear_key().unwrap();
-    assert_eq!(cleared, Status { configured: false, key_hint: None, model: "m".into() });
+    assert_eq!(cleared, api_status(false, None, "m"));
     let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(saved["api_key"], "");
 
@@ -684,7 +696,7 @@ fn errors_never_contain_the_api_key() {
     let mut texts: Vec<String> = Vec::new();
     texts.push(serde_json::to_string(&a.status()).unwrap());
     texts.push(format!("{:?}", a.status()));
-    texts.extend(a.save(Some(KEY.into()), "".into()).err());
+    texts.extend(a.save(Some(KEY.into()), "".into(), None).err());
     let run = a.begin("main", "Hi").unwrap();
     texts.extend(a.begin("main", "Hi").err());
 
