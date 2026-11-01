@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { GROUPS, platformKeys, type Command, type Group } from "../commands";
 
 const ICONS: Record<Group, string> = { File: "▤", Edit: "✎", View: "◉", Insert: "+", Format: "Aa" };
@@ -91,18 +92,19 @@ function MenuList({ items, onChoose }: { items: Command[]; onChoose(c: Command):
   const ref = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
 
-  // Fixed, under its button: the bar's slot clips anything that overflows it, a fixed box is not clipped.
+  // Fixed, under its button. The bar's slot clips what overflows it, and the macOS webview also clips
+  // a fixed box inside it when painting (while still hit-testing it): the list lives in <body>.
   // The last menus would run off a narrow window: open them leftwards instead.
   useLayoutEffect(() => {
     const el = ref.current;
-    const button = el?.parentElement?.querySelector(".menu-btn");
+    const button = document.querySelector(".menu-btn.open");
     if (!el || !button) return;
     const b = button.getBoundingClientRect();
     const left = b.left + el.offsetWidth > window.innerWidth - 8 ? Math.max(8, b.right - el.offsetWidth) : b.left;
     setAt({ left, top: b.bottom + 4 });
   }, []);
 
-  return (
+  return createPortal(
     <div ref={ref} className="menu-list" role="menu" style={at ?? { visibility: "hidden" }}>
       {items.map((c) => (
         <button key={c.id} className="menu-item" role="menuitem" disabled={!c.enabled} onClick={() => onChoose(c)}>
@@ -112,6 +114,7 @@ function MenuList({ items, onChoose }: { items: Command[]; onChoose(c: Command):
           <span className="keys">{platformKeys(c.keys)}</span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

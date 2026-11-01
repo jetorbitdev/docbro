@@ -71,7 +71,7 @@ button,textarea{font-family:inherit}
 .menu-btn .glyph{font-size:13px;color:var(--accent-ink)}
 .menu-btn .caret{font-size:9px;color:var(--muted)}
 /* fixed, placed by MenuBar from its button: the slot clips what overflows it, a fixed box is not clipped */
-.menu-list{position:fixed;min-width:240px;max-height:calc(100vh - 100px);overflow-y:auto;background:var(--surface);border:1px solid var(--line2);border-radius:10px;box-shadow:0 20px 50px -20px rgba(0,0,0,.35);padding:4px;display:flex;flex-direction:column;gap:1px}
+.menu-list{position:fixed;z-index:30;min-width:240px;max-height:calc(100vh - 100px);overflow-y:auto;background:var(--surface);border:1px solid var(--line2);border-radius:10px;box-shadow:0 20px 50px -20px rgba(0,0,0,.35);padding:4px;display:flex;flex-direction:column;gap:1px}
 .menu-item{display:flex;align-items:center;gap:10px;min-height:32px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:var(--ink);cursor:pointer;text-align:left;font-size:13px;flex-shrink:0}
 .menu-item:hover:not(:disabled){background:var(--hover)}
 .menu-item:disabled,.pal-item.disabled{opacity:.45;cursor:default}
