@@ -22,7 +22,7 @@ export function TopBar({ path, dirty, focus, assistantOpen, run }: Props) {
         {folder && (
           <>
             <span className="folder" data-tauri-drag-region>{folder}</span>
-            <span className="slash" data-tauri-drag-region>/</span>
+            <span className="divider" data-tauri-drag-region>/</span>
           </>
         )}
         <span className="name" data-tauri-drag-region>{name}</span>

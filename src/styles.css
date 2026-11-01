@@ -47,7 +47,7 @@ button,textarea{font-family:inherit}
 .logo{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
 .crumbs{display:flex;align-items:center;gap:8px;font-size:13.5px;min-width:0}
 .crumbs .folder{color:var(--muted);white-space:nowrap}
-.crumbs .slash{color:var(--line2)}
+.crumbs .divider{color:var(--line2)}
 .crumbs .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crumbs .status{font-size:12px;color:var(--muted);white-space:nowrap;padding-left:6px}
 /* in the menu bar, left of Larger text, the same size as it */
