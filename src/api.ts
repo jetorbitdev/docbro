@@ -50,8 +50,39 @@ export interface McpStatus {
   error: string | null;
 }
 
-/** Who answers: the user's Claude Code CLI on their Claude subscription, or the Anthropic API with their key. */
-export type AssistantEngine = "claude_code" | "api_key";
+/**
+ * Who answers: the user's Claude Code CLI on their Claude subscription, the Anthropic API with
+ * their key, or another provider through an OpenAI-compatible API.
+ */
+export type AssistantEngine = "claude_code" | "api_key" | "openai_compatible";
+
+/** A provider the settings offer (`assistantPresets`); its base URL fills the form and stays editable. */
+export interface ProviderPreset {
+  /** `openai`, `openrouter`, `gemini`, `groq`, `deepseek`, `mistral`, `ollama`, `lmstudio` or `custom` */
+  id: string;
+  /** what messages call the provider, e.g. "Ollama" */
+  name: string;
+  /** what the picker shows, e.g. "Ollama (on this computer)" */
+  label: string;
+  /** empty for Custom */
+  base_url: string;
+  key_required: boolean;
+}
+
+/**
+ * The other provider's settings as the webview may know them: the key's last four characters,
+ * never the key.
+ */
+export interface OpenAiStatus {
+  /** a `ProviderPreset` id */
+  preset: string;
+  base_url: string;
+  /** empty until the user picks one */
+  model: string;
+  key_hint: string | null;
+  /** the base URL is valid, a model is set, and a key is saved if the preset needs one */
+  configured: boolean;
+}
 
 /** The `claude` DocBro found. `version` is what `claude --version` said, e.g. "2.1.316". */
 export interface ClaudeStatus {
@@ -62,7 +93,7 @@ export interface ClaudeStatus {
 
 /** The Assistant's settings as the webview may know them: the API key's last four characters, never the key. */
 export interface AssistantStatus {
-  /** the engine has what it needs: a saved key, or a `claude` that was found */
+  /** the engine picked has what it needs: a saved key, a `claude` that was found, or a ready provider */
   configured: boolean;
   key_hint: string | null;
   /** the API's model */
@@ -72,6 +103,7 @@ export interface AssistantStatus {
   /** Claude Code's model: a CLI alias (`sonnet`, `opus`, `haiku`) or a full name */
   claude_model: string;
   claude: ClaudeStatus;
+  openai: OpenAiStatus;
 }
 
 /** A Claude Code session on this Mac, for "Continue a Claude Code session". Newest first. */
@@ -152,7 +184,22 @@ export const api = {
    */
   assistantSave: (apiKey: string | null, model: string, engine?: AssistantEngine) =>
     invoke<AssistantStatus>("assistant_save", engine ? { apiKey, model, engine } : { apiKey, model }),
-  assistantClearKey: () => invoke<AssistantStatus>("assistant_clear_key"),
+  /** Removes the Anthropic key, or with `openai_compatible` the other provider's key. */
+  assistantClearKey: (engine?: AssistantEngine) =>
+    invoke<AssistantStatus>("assistant_clear_key", engine ? { engine } : undefined),
+  /**
+   * Saves the other provider's settings and picks that engine. An empty `baseUrl` is the preset's;
+   * plain http is refused except for this computer. `apiKey` null keeps the saved key, but only
+   * while the base URL's origin (scheme, host, port) stays the same: otherwise it is dropped, and
+   * the form says "The saved key is not sent to a different server. Enter it again." `model` may
+   * stay empty until the models are loaded.
+   */
+  assistantSaveOpenai: (preset: string, baseUrl: string, model: string, apiKey: string | null) =>
+    invoke<AssistantStatus>("assistant_save_openai", { preset, baseUrl, model, apiKey }),
+  /** The saved provider's models, sorted. Rejects with a readable error. */
+  assistantListModels: () => invoke<string[]>("assistant_list_models"),
+  /** The providers the settings offer, in their order; the last is Custom. */
+  assistantPresets: () => invoke<ProviderPreset[]>("assistant_presets"),
   /**
    * Resolves at once; the answer comes as `assistant-event`s to this window. `context` is the
    * selected text, `only` the server id of an @mention, `excludeBuiltin` true when the built-in

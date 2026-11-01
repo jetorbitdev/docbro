@@ -457,7 +457,7 @@ fn same_target(old: &ServerSpec, new: &ServerSpec) -> bool {
 }
 
 /// `(scheme, host, port)` of a URL, lowercase, with the scheme's default port filled in.
-fn origin(url: &str) -> Option<(String, String, u16)> {
+pub(crate) fn origin(url: &str) -> Option<(String, String, u16)> {
     let uri = url.trim().parse::<ureq::http::Uri>().ok()?;
     let scheme = uri.scheme_str()?.to_ascii_lowercase();
     let port = uri.port_u16().or(match scheme.as_str() {

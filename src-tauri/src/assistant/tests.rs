@@ -134,6 +134,7 @@ fn api_status(configured: bool, key_hint: Option<&str>, model: &str) -> Status {
         engine: Engine::ApiKey,
         claude_model: DEFAULT_CLAUDE_MODEL.into(),
         claude: ClaudeStatus::default(),
+        openai: openai::Settings::default().status(),
     }
 }
 

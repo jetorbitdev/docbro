@@ -10,6 +10,9 @@
 //! A second engine, Claude Code (`claude_code`), runs the user's own `claude` CLI instead of the
 //! API. The CLI runs its own tool loop, so it sits beside `run_turn` and shares the rest: the
 //! chat of each window, `settle` and the `assistant-event`s.
+//!
+//! A third engine, any provider with an OpenAI-compatible API (`openai`), is one more `Model`
+//! for `run_turn`.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -36,6 +39,9 @@ use crate::{
     servers::RESERVED_ID,
     AppState, CmdResult, LockExt,
 };
+
+mod openai;
+use openai::{Endpoint, OpenAiModel, OpenAiStatus, Preset};
 
 /// Same as `identifier` in tauri.conf.json.
 const APP_ID: &str = "com.jetorbit.docbro";
@@ -83,13 +89,15 @@ const OUT_OF_ROUNDS: &str = "Not run: the assistant reached its limit of 12 roun
 
 // -------------------------------------------------------------------- config
 
-/// Who answers: the user's Claude Code CLI on their Claude subscription, or the Anthropic API
-/// with their key.
+/// Who answers: the user's Claude Code CLI on their Claude subscription, the Anthropic API
+/// with their key, or another provider through an OpenAI-compatible API.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     ClaudeCode,
     ApiKey,
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible,
 }
 
 /// What `assistant.json` holds. No `Debug`: it carries the API key.
@@ -107,6 +115,9 @@ struct Config {
     /// where `claude` is when it is not found on its own; not in the UI
     #[serde(skip_serializing_if = "Option::is_none")]
     claude_path: Option<String>,
+    /// the other provider: preset, base URL, model and its own key
+    #[serde(skip_serializing_if = "openai::Settings::is_unset")]
+    openai: openai::Settings,
 }
 
 impl Default for Config {
@@ -117,6 +128,7 @@ impl Default for Config {
             engine: None,
             claude_model: DEFAULT_CLAUDE_MODEL.into(),
             claude_path: None,
+            openai: openai::Settings::default(),
         }
     }
 }
@@ -132,6 +144,13 @@ pub struct Status {
     pub engine: Engine,
     pub claude_model: String,
     pub claude: ClaudeStatus,
+    pub openai: OpenAiStatus,
+}
+
+/// The last four characters of `key`; none for a short key, which would give most of itself away.
+fn key_hint(key: &str) -> Option<String> {
+    let chars: Vec<char> = key.chars().collect();
+    (chars.len() > 8).then(|| chars[chars.len() - 4..].iter().collect())
 }
 
 impl Config {
@@ -145,15 +164,15 @@ impl Config {
     }
 
     fn status(&self, claude: ClaudeStatus) -> Status {
-        let chars: Vec<char> = self.api_key.chars().collect();
-        // a short key would give most of itself away
-        let key_hint = (chars.len() > 8).then(|| chars[chars.len() - 4..].iter().collect());
         let engine = self.engine(claude.found);
+        let openai = self.openai.status();
         let configured = match engine {
             Engine::ApiKey => !self.api_key.is_empty(),
             Engine::ClaudeCode => claude.found,
+            Engine::OpenAiCompatible => openai.configured,
         };
-        Status { configured, key_hint, model: self.model.clone(), engine, claude_model: self.claude_model.clone(), claude }
+        let key_hint = key_hint(&self.api_key);
+        Status { configured, key_hint, model: self.model.clone(), engine, claude_model: self.claude_model.clone(), claude, openai }
     }
 }
 
@@ -224,6 +243,8 @@ pub(crate) struct Begun {
     /// Claude Code: the `claude` found, and where the message goes
     pub(crate) claude: Option<PathBuf>,
     pub(crate) session: Session,
+    /// the other provider: where the message goes
+    pub(crate) endpoint: Option<Endpoint>,
 }
 
 /// The settings, read from the file whenever they are needed, and the chat of every window;
@@ -283,8 +304,8 @@ impl Assistant {
         config.status(claude)
     }
 
-    /// `api_key` None (or blank) keeps the saved key. `engine` None keeps the engine and makes
-    /// `model` the API's model; otherwise `model` is that engine's.
+    /// `api_key` None (or blank) keeps the saved Anthropic key, whatever the engine. `engine` None
+    /// keeps the engine and makes `model` the API's model; otherwise `model` is that engine's.
     pub fn save(&self, api_key: Option<String>, model: String, engine: Option<Engine>) -> CmdResult<Status> {
         let model = model.trim();
         if model.is_empty() {
@@ -300,6 +321,7 @@ impl Assistant {
         }
         match engine {
             Some(Engine::ClaudeCode) => config.claude_model = model.to_string(),
+            Some(Engine::OpenAiCompatible) => config.openai.set_model(model),
             _ => config.model = model.to_string(),
         }
         config.engine = engine.or(config.engine);
@@ -317,9 +339,37 @@ impl Assistant {
         Ok(self.status_of(config))
     }
 
-    /// Takes the user's message in window `label`, if the engine has what it needs (a key, or
-    /// `claude`) and the window's chat is not answering another one, and marks the chat busy
-    /// until `finish`.
+    /// Saves the other provider's settings and picks that engine. A blank `base_url` is the
+    /// preset's. `api_key` None (or blank) keeps the saved key, but only while the base URL's
+    /// origin stays the same. `model` may stay empty until the provider's list is loaded.
+    pub fn save_openai(&self, preset: String, base_url: String, model: String, api_key: Option<String>) -> CmdResult<Status> {
+        let turn = self.saving.lock_recovering();
+        let mut config = self.config();
+        config.openai.update(&preset, &base_url, &model, api_key)?;
+        config.engine = Some(Engine::OpenAiCompatible);
+        self.write(&config)?;
+        drop(turn);
+        Ok(self.status_of(config))
+    }
+
+    pub fn clear_openai_key(&self) -> CmdResult<Status> {
+        let turn = self.saving.lock_recovering();
+        let mut config = self.config();
+        config.openai.clear_key();
+        self.write(&config)?;
+        drop(turn);
+        Ok(self.status_of(config))
+    }
+
+    /// The other provider's models, with the saved settings. Blocks on the network.
+    pub fn list_models(&self) -> CmdResult<Vec<String>> {
+        let settings = self.config().openai;
+        openai::list_models(settings.key(), &settings.endpoint()?)
+    }
+
+    /// Takes the user's message in window `label`, if the engine has what it needs (a key,
+    /// `claude`, or a provider set up) and the window's chat is not answering another one, and
+    /// marks the chat busy until `finish`.
     pub(crate) fn begin(&self, label: &str, text: &str) -> CmdResult<Begun> {
         let text = text.trim();
         if text.is_empty() {
@@ -328,13 +378,20 @@ impl Assistant {
         let config = self.config();
         let claude = self.claude.find(config.claude_path.as_deref());
         let engine = config.engine(claude.is_some());
-        let (key, model) = match engine {
+        let (key, model, endpoint) = match engine {
             Engine::ApiKey if config.api_key.is_empty() => return Err(NO_KEY.into()),
-            Engine::ApiKey => (config.api_key, config.model),
+            Engine::ApiKey => (config.api_key, config.model, None),
             Engine::ClaudeCode if claude.is_none() => return Err(claude_code::NOT_FOUND.into()),
             Engine::ClaudeCode => {
                 claude_code::check_model(&config.claude_model)?;
-                (String::new(), config.claude_model)
+                (String::new(), config.claude_model, None)
+            }
+            Engine::OpenAiCompatible => {
+                let endpoint = config.openai.endpoint()?;
+                if config.openai.model().is_empty() {
+                    return Err(NO_MODEL.into());
+                }
+                (config.openai.key().to_string(), config.openai.model().to_string(), Some(endpoint))
             }
         };
         let mut chats = self.chats.lock_recovering();
@@ -347,12 +404,12 @@ impl Assistant {
         chat.running = Some(Run { id, cancel: cancel.clone() });
         let mut history = std::mem::take(&mut chat.history);
         let before = history.len();
-        // Claude Code keeps its own conversation; the API's waits for the engine to come back
-        if engine == Engine::ApiKey {
+        // Claude Code keeps its own conversation; the others' waits for the engine to come back
+        if engine != Engine::ClaudeCode {
             history.push(json!({ "role": "user", "content": text }));
         }
         let session = chat.session.clone();
-        Ok(Begun { id, cancel, history, before, key, model, engine, text: text.into(), claude, session })
+        Ok(Begun { id, cancel, history, before, key, model, engine, text: text.into(), claude, session, endpoint })
     }
 
     /// Claude Code's next message in window `label` goes on in a copy of session `id`.
@@ -972,8 +1029,11 @@ fn converse(
     };
     let (defs, known) = build_tools(&builtin, &external);
     let system = build_system_prompt(&doc_info, ask.context.as_deref());
-    let model = AnthropicModel::new(&run.key, &run.model, system, defs, API_URL, run.cancel.clone());
-    run_turn(&model, &mut AppTools { app, label, known }, history, emit, &run.cancel)
+    let model: Box<dyn Model> = match &run.endpoint {
+        Some(endpoint) => Box::new(OpenAiModel::new(&run.key, &run.model, endpoint.clone(), system, defs, run.cancel.clone())),
+        None => Box::new(AnthropicModel::new(&run.key, &run.model, system, defs, API_URL, run.cancel.clone())),
+    };
+    run_turn(model.as_ref(), &mut AppTools { app, label, known }, history, emit, &run.cancel)
 }
 
 /// Answers one message in window `label` with `converse` and frees the chat, however the
@@ -1019,7 +1079,7 @@ fn answer(app: AppHandle, label: String, run: Begun, ask: Ask) {
         let _ = app.emit_to(label.as_str(), EVENT, event);
     };
     settle(&app.state::<AppState>().assistant, &label, run, &send, |run, history, emit| match run.engine {
-        Engine::ApiKey => converse(&app, &label, run, &ask, history, emit),
+        Engine::ApiKey | Engine::OpenAiCompatible => converse(&app, &label, run, &ask, history, emit),
         Engine::ClaudeCode => claude_code::converse(&app, &label, run, &ask, emit),
     });
 }
@@ -1044,9 +1104,38 @@ pub async fn assistant_save(api_key: Option<String>, model: String, engine: Opti
     with_assistant(app, move |a| a.save(api_key, model, engine)).await?
 }
 
+/// `engine` `openai_compatible` removes the other provider's key; otherwise the Anthropic key.
 #[tauri::command]
-pub async fn assistant_clear_key(app: AppHandle) -> CmdResult<Status> {
-    with_assistant(app, |a| a.clear_key()).await?
+pub async fn assistant_clear_key(engine: Option<Engine>, app: AppHandle) -> CmdResult<Status> {
+    with_assistant(app, move |a| match engine {
+        Some(Engine::OpenAiCompatible) => a.clear_openai_key(),
+        _ => a.clear_key(),
+    })
+    .await?
+}
+
+/// Saves the other provider's settings and picks that engine; see `Assistant::save_openai`.
+#[tauri::command]
+pub async fn assistant_save_openai(
+    preset: String,
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    app: AppHandle,
+) -> CmdResult<Status> {
+    with_assistant(app, move |a| a.save_openai(preset, base_url, model, api_key)).await?
+}
+
+/// The saved provider's models, sorted.
+#[tauri::command]
+pub async fn assistant_list_models(app: AppHandle) -> CmdResult<Vec<String>> {
+    with_assistant(app, |a| a.list_models()).await?
+}
+
+/// The providers the settings offer, in their order; the last is Custom.
+#[tauri::command]
+pub fn assistant_presets() -> &'static [Preset] {
+    openai::PRESETS
 }
 
 /// Returns at once; the answer comes as `assistant-event`s to this window.

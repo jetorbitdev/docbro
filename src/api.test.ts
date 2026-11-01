@@ -75,4 +75,23 @@ describe("api", () => {
     await api.assistantTeleport("https://claude.ai/code/session_01ABC");
     expect(invoke).toHaveBeenLastCalledWith("assistant_teleport", { input: "https://claude.ai/code/session_01ABC" });
   });
+
+  it("passes the other provider's settings by the names Rust expects", async () => {
+    invoke.mockResolvedValue(undefined);
+    await api.assistantSaveOpenai("ollama", "", "llama3.2", null);
+    expect(invoke).toHaveBeenLastCalledWith("assistant_save_openai", {
+      preset: "ollama",
+      baseUrl: "",
+      model: "llama3.2",
+      apiKey: null,
+    });
+    await api.assistantListModels();
+    expect(invoke).toHaveBeenLastCalledWith("assistant_list_models");
+    await api.assistantPresets();
+    expect(invoke).toHaveBeenLastCalledWith("assistant_presets");
+    await api.assistantClearKey("openai_compatible");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_clear_key", { engine: "openai_compatible" });
+    await api.assistantClearKey();
+    expect(invoke).toHaveBeenLastCalledWith("assistant_clear_key", undefined);
+  });
 });
