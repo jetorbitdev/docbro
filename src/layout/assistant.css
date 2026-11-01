@@ -10,7 +10,7 @@
 .head-btn.small{height:28px;font-size:12.5px}
 .add-btn{height:34px;border:1px dashed var(--line2);background:transparent;color:var(--ink2);border-radius:9px;font-size:13px;cursor:pointer;flex-shrink:0}
 .add-btn:hover{background:var(--hover)}
-.assistant-panel button:focus-visible,.assistant-panel textarea:focus-visible,.mcp-sheet button:focus-visible,.mcp-sheet input:focus-visible{outline:2px solid var(--accent-ink);outline-offset:1px}
+.assistant-panel button:focus-visible,.assistant-panel textarea:focus-visible,.mcp-sheet button:focus-visible,.mcp-sheet input:focus-visible,.mcp-sheet select:focus-visible{outline:2px solid var(--accent-ink);outline-offset:1px}
 
 /* CONNECTED SERVERS (241–263) */
 .servers{padding:0 16px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;flex-shrink:0}
@@ -118,6 +118,33 @@
 .server-confirm{margin-top:4px;padding:12px;border:1px solid var(--line2);border-radius:9px;background:var(--soft)}
 .server-confirm p{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink)}
 .server-confirm code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
+
+/* the Model section: one engine row each, then the picked engine's settings */
+.engine-list{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.engine-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:13.5px;color:var(--ink);cursor:pointer}
+.engine-row.on{border-color:var(--accent-ink)}
+.engine-row input{margin:0;accent-color:var(--accent);flex-shrink:0}
+.engine-form{display:flex;flex-direction:column}
+.engine-form>.mcp-note{margin:0 0 6px;line-height:1.45}
+.engine-status{margin:0 0 10px;font-size:12.5px;line-height:1.45;color:var(--t-amber);overflow-wrap:anywhere}
+.engine-status.on{color:var(--accent-ink)}
+.engine-form>.field-note{margin:-2px 0 8px 84px;padding:0}
+.mcp-field select{height:30px;flex:1;min-width:0;padding:0 8px;border:1px solid var(--line2);border-radius:7px;outline:0;background:var(--surface);font:inherit;font-size:13px;color:var(--ink)}
+.mcp-field select:focus{border-color:var(--accent-ink)}
+.server-actions>.mcp-note{line-height:1.45}
+
+/* Continue a Claude Code session: the sheet, and the line above the stream once one is picked */
+.session-pane{display:flex;flex-direction:column;gap:10px;padding:4px}
+.session-pane .mcp-error{padding:0}
+.session-list{display:flex;flex-direction:column;gap:4px}
+.session-row{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);text-align:left;cursor:pointer}
+.session-row:hover:not(:disabled){border-color:var(--accent-ink)}
+.session-row:disabled{opacity:.6;cursor:default}
+.session-title,.session-meta{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.session-title{font-size:13.5px;font-weight:500}
+.session-meta{font-size:11.5px;color:var(--muted)}
+.continuing{flex-shrink:0;margin:12px 16px 0;padding:6px 10px;border-radius:7px;background:var(--accent-soft);color:var(--accent-ink);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.continue-btn{align-self:flex-start}
 
 /* the composer (311–327) */
 .composer-wrap{padding:12px 16px 16px;border-top:1px solid var(--line);flex-shrink:0}

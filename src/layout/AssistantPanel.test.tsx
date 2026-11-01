@@ -4,7 +4,7 @@ import type { Editor } from "@tiptap/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { AssistantEvent } from "../api";
+import type { AssistantEngine, AssistantEvent } from "../api";
 import { createHeadlessEditor } from "../editor/headless";
 import { activity } from "../mcp/activity";
 import { AssistantPanel } from "./AssistantPanel";
@@ -26,17 +26,23 @@ const notes = {
   error: null,
 };
 
+const SESSION_ID = "a58cb882-e0af-47a3-abd9-215f026181a6";
+
 let host: HTMLElement;
 let root: Root;
 let editor: Editor;
 let calls: { cmd: string; args: Record<string, unknown> }[];
 let configured: boolean;
+let engine: AssistantEngine;
+let claudeFound: boolean;
 let sendFails: string | null;
 
 beforeEach(() => {
   mockWindows("main");
   calls = [];
   configured = true;
+  engine = "api_key";
+  claudeFound = true;
   sendFails = null;
   localStorage.clear();
   activity.clear();
@@ -46,7 +52,17 @@ beforeEach(() => {
       calls.push({ cmd, args });
       switch (cmd) {
         case "assistant_status":
-          return { configured, key_hint: configured ? "c0de" : null, model: "claude-sonnet-5-5" };
+          return {
+            configured,
+            key_hint: configured ? "c0de" : null,
+            model: "claude-sonnet-5-5",
+            engine,
+            claude_model: "sonnet",
+            claude: { found: claudeFound, path: claudeFound ? "/usr/local/bin/claude" : null, version: claudeFound ? "2.1.316" : null },
+            openai: { preset: "openai", base_url: "https://api.openai.com/v1", model: "", key_hint: null, configured: false },
+          };
+        case "claude_sessions":
+          return [{ id: SESSION_ID, title: "Plan the <b>launch</b>", project: "web-app", modified: "2026-11-01T09:00:00Z" }];
         case "servers_list":
           return [notes, { ...notes, id: "off", name: "Off one", enabled: false, status: "off", tools: 0 }];
         case "servers_set_enabled":
@@ -205,4 +221,64 @@ test("a_suggestion_sends_itself", async () => {
   await render();
   await click("@docbroSummarize this document in three bullets");
   expect(sent()).toEqual([{ text: "Summarize this document in three bullets", context: null, only: "docbro", excludeBuiltin: false }]);
+});
+
+test("claude_code_not_found_says_to_install_it_or_switch", async () => {
+  engine = "claude_code";
+  claudeFound = false;
+  configured = false;
+  await render();
+  await vi.waitFor(() =>
+    expect(host.textContent).toContain("Claude Code was not found. Install it from claude.com/code, or switch to an API key in MCP settings."),
+  );
+  expect(host.querySelector("textarea")).toBeNull();
+});
+
+test("a_provider_not_set_up_says_to_finish_its_settings", async () => {
+  engine = "openai_compatible";
+  configured = false;
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("Finish the other provider's settings to start chatting."));
+  expect(host.querySelector("textarea")).toBeNull();
+});
+
+test("claude_code_found_needs_no_key_to_chat", async () => {
+  engine = "claude_code";
+  configured = true;
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("Continue a Claude Code session…"));
+  expect(host.querySelector("textarea")).not.toBeNull();
+});
+
+test("continue_a_session_is_offered_with_claude_code_only", async () => {
+  await render();
+  await vi.waitFor(() => expect(calls.some((c) => c.cmd === "assistant_status")).toBe(true));
+  expect(host.textContent).not.toContain("Continue a Claude Code session…");
+});
+
+test("continuing_a_session_starts_afresh_in_a_copy_and_says_so_until_new", async () => {
+  engine = "claude_code";
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("Continue a Claude Code session…"));
+  await type("Hello");
+  await enter();
+  await event({ type: "done" });
+  await click("New");
+  await click("Continue a Claude Code session…");
+  await vi.waitFor(() => expect(host.querySelector(".session-row")).not.toBeNull());
+  const resets = calls.filter((c) => c.cmd === "assistant_reset").length;
+  await act(async () => host.querySelector<HTMLButtonElement>(".session-row")!.click());
+  await vi.waitFor(() => expect(host.textContent).toContain("Continuing “Plan the <b>launch</b>”"));
+  expect(host.querySelector(".continuing b")).toBeNull();
+  // the sheet is closed, the panel's chat is new, and the next message goes on in a copy
+  expect(host.querySelector(".session-row")).toBeNull();
+  const after = calls.map((c) => c.cmd).slice(calls.findIndex((c, i) => c.cmd === "assistant_reset" && calls.slice(0, i).filter((x) => x.cmd === "assistant_reset").length === resets));
+  expect(after.filter((c) => c === "assistant_reset" || c === "assistant_continue")).toEqual(["assistant_reset", "assistant_continue"]);
+  expect(calls.find((c) => c.cmd === "assistant_continue")!.args).toEqual({ sessionId: SESSION_ID });
+  await type("Go on");
+  await enter();
+  expect(host.textContent).toContain("Continuing “Plan the <b>launch</b>”");
+  await event({ type: "done" });
+  await click("New");
+  expect(host.textContent).not.toContain("Continuing");
 });

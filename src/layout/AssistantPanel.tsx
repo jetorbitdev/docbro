@@ -2,18 +2,19 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type { Editor } from "@tiptap/core";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { api, type AssistantEvent, type ServerView } from "../api";
+import { api, type AssistantEvent, type AssistantStatus, type ClaudeSession, type ServerView } from "../api";
 import { emptyChat, parseMention, reduceChat, sendUser, type ChatState, type Msg, type ToolCard as Card } from "../assistant/chat";
 import { flashSelection, insertAssistantText } from "../assistant/insert";
 import { activity, type ActivityEntry } from "../mcp/activity";
 import { Composer } from "./Composer";
+import { ContinueSession } from "./ContinueSession";
 import { BUILTIN, ServersRow, tileOf } from "./ServersRow";
 import "./assistant.css";
 
 interface Props {
   /** the document's editor, which "Insert into doc" and "+ Selection" work on */
   editor: Editor;
-  /** while MCP settings are open; when they close, the panel reloads the key status and the servers */
+  /** while MCP settings are open; when they close, the panel reloads the engine's status and the servers */
   settingsOpen: boolean;
   onClose(): void;
   /** opens MCP settings, on the form that adds a server with `addServer` */
@@ -43,6 +44,18 @@ function builtinOn(): boolean {
   }
 }
 
+/** Why the composer is off, and what fixes it, for the engine picked. */
+function offText(status: AssistantStatus | null): string {
+  switch (status?.engine) {
+    case "claude_code":
+      return "Claude Code was not found. Install it from claude.com/code, or switch to an API key in MCP settings.";
+    case "openai_compatible":
+      return "Finish the other provider's settings to start chatting.";
+    default:
+      return "Add your Anthropic API key to start chatting.";
+  }
+}
+
 /** The text selected in the document, if any. */
 function selectionText(editor: Editor): string {
   const { from, to } = editor.state.selection;
@@ -50,16 +63,19 @@ function selectionText(editor: Editor): string {
 }
 
 /**
- * Mock 231–329: the chat with Claude, which can use the document and the user's MCP servers
- * (Rust runs it, so the API key never reaches the webview), with the tool calls external AI
- * clients make in this window shown between the messages.
+ * Mock 231–329: the chat, which can use the document and the user's MCP servers (Rust runs it,
+ * on Claude Code, the Anthropic API or another provider, so no key reaches the webview), with
+ * the tool calls external AI clients make in this window shown between the messages.
  */
 export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Props) {
   const calls = useSyncExternalStore(activity.subscribe, activity.list);
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const [stopping, setStopping] = useState(false);
   const [context, setContext] = useState<string | null>(null);
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<AssistantStatus | null>(null);
+  // the title of the Claude Code session the chat goes on in, and whether the sheet to pick one is open
+  const [continuing, setContinuing] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const [servers, setServers] = useState<ServerView[]>([]);
   const [builtin, setBuiltin] = useState(builtinOn);
   const [copied, setCopied] = useState<number | null>(null);
@@ -86,10 +102,10 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
     };
   }, []);
 
-  // the key may have been saved and servers added in the settings; a message may have connected a server or failed to
+  // an engine may have been set up and servers added in the settings; a message may have connected a server or failed to
   useEffect(() => {
     if (settingsOpen || chat.busy) return;
-    api.assistantStatus().then((s) => setConfigured(s.configured), () => {});
+    api.assistantStatus().then(setStatus, () => {});
     api.serversList().then(setServers, () => {});
   }, [settingsOpen, chat.busy]);
 
@@ -150,8 +166,19 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
   const clear = () => {
     setChat(emptyChat);
     setContext(null);
+    setContinuing(null);
     activity.clear();
-    api.assistantReset().catch(() => {});
+    return api.assistantReset().catch(() => {});
+  };
+
+  /** A new chat whose next message goes on in a copy of `session`; rejects with why it cannot. */
+  const continueSession = async (session: ClaudeSession) => {
+    // a reset would stop the answer coming in
+    if (busy.current) throw new Error("The assistant is still answering. Stop it first.");
+    await clear();
+    await api.assistantContinue(session.id);
+    setContinuing(session.title);
+    setPicking(false);
   };
 
   const useSelection = () => {
@@ -176,6 +203,8 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
     ...calls.map((call) => ({ at: call.at, call })),
   ].sort((a, b) => a.at - b.at);
   const answering = chat.busy ? chat.msgs[chat.msgs.length - 1] : null;
+  // sessions can be continued once Claude Code is the engine and was found
+  const claudeCode = status?.engine === "claude_code" && status.configured;
 
   return (
     <>
@@ -183,7 +212,7 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
         <span className="title">Assistant</span>
         <span className="pill">MCP</span>
         <div className="spacer" />
-        <button className="head-btn" title="New chat" onClick={clear}>
+        <button className="head-btn" title="New chat" onClick={() => void clear()}>
           New
         </button>
         <button className="icon-btn" title="MCP settings" aria-label="MCP settings" onClick={() => onSettings()}>
@@ -194,6 +223,11 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
         </button>
       </div>
       <ServersRow servers={servers} builtin={builtin} onBuiltin={setBuiltinOn} onToggle={toggleServer} onAdd={() => onSettings(true)} />
+      {continuing !== null && claudeCode && (
+        <div className="continuing" title={continuing}>
+          Continuing “{continuing}”
+        </div>
+      )}
       <div className="assistant-stream" ref={stream}>
         {items.length ? (
           items.map((item) =>
@@ -230,13 +264,18 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
                 </button>
               ))}
             </div>
+            {claudeCode && (
+              <button className="line-btn continue-btn" onClick={() => setPicking(true)}>
+                Continue a Claude Code session…
+              </button>
+            )}
           </div>
         )}
       </div>
-      {configured === false ? (
+      {status?.configured === false ? (
         <div className="composer-wrap">
           <div className="composer-off">
-            <p>Add your Anthropic API key to start chatting.</p>
+            <p>{offText(status)}</p>
             <button className="line-btn" onClick={() => onSettings()}>
               Open MCP settings
             </button>
@@ -254,6 +293,7 @@ export function AssistantPanel({ editor, settingsOpen, onClose, onSettings }: Pr
           onStop={stop}
         />
       )}
+      {picking && claudeCode && <ContinueSession onContinue={continueSession} onClose={() => setPicking(false)} />}
     </>
   );
 }

@@ -45,7 +45,18 @@ beforeEach(() => {
       case "mcp_status":
         return { enabled: false, running: false, port: 7425, url: "http://127.0.0.1:7425/mcp", token: "t", command: "/x", error: null };
       case "assistant_status":
-        return { configured: true, key_hint: "c0de", model: "claude-sonnet-5-5", api_key: KEY };
+        return {
+          configured: true,
+          key_hint: "c0de",
+          model: "claude-sonnet-5-5",
+          engine: "api_key",
+          claude_model: "sonnet",
+          claude: { found: false, path: null, version: null },
+          openai: { preset: "openai", base_url: "https://api.openai.com/v1", model: "", key_hint: null, configured: false },
+          api_key: KEY,
+        };
+      case "assistant_presets":
+        return [];
       case "servers_list":
         return listed;
       case "servers_save":

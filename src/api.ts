@@ -219,7 +219,7 @@ export const api = {
    * Resolves at once; the answer comes as `assistant-event`s to this window. `context` is the
    * selected text, `only` the server id of an @mention, `excludeBuiltin` true when the built-in
    * document server is switched off. Rejects while this window's chat is still answering, or
-   * when no API key is saved.
+   * when the engine picked is not set up (no key, no `claude`, or the provider unfinished).
    */
   assistantSend: (text: string, context: string | null, only: string | null, excludeBuiltin: boolean) =>
     invoke<void>("assistant_send", { text, context, only, excludeBuiltin }),

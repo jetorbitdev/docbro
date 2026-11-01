@@ -58,7 +58,7 @@ export const commandLine = (command: string, args: string[]) =>
   [command, ...args].map((a) => (a && !/[\s"]/.test(a) ? a : `"${a.replace(/"/g, '\\"')}"`)).join(" ");
 
 /** `scheme://host[:port]` of a URL, as Rust compares them (servers.rs, `same_target`); null when it is not one. */
-function originOf(url: string): string | null {
+export function originOf(url: string): string | null {
   try {
     const u = new URL(url.trim());
     return `${u.protocol}//${u.host}`;
