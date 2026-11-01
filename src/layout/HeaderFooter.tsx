@@ -40,11 +40,14 @@ function Field({ value, label, onChange }: FieldProps) {
 
 interface HeaderProps {
   text: string | null;
+  /** The file's own header is kept and drawn on every sheet (Paper), so there is no text zone to show. */
+  kept: boolean;
   onChange(patch: Partial<DocMeta>): void;
 }
 
 /** Mock 134–144: an off header is a hover strip; an on one is a dashed line above the page. */
-export function HeaderZone({ text, onChange }: HeaderProps) {
+export function HeaderZone({ text, kept, onChange }: HeaderProps) {
+  if (kept) return null;
   if (text === null)
     return (
       <button className="hf-add hf-add-header" onClick={() => onChange({ header: "" })}>
@@ -69,7 +72,8 @@ interface FooterProps extends HeaderProps {
 }
 
 /** Mock 145–155: the footer also carries the page-number toggle. */
-export function FooterZone({ text, pageNumbers, pages, onChange }: FooterProps) {
+export function FooterZone({ text, pageNumbers, pages, kept, onChange }: FooterProps) {
+  if (kept) return null;
   if (text === null)
     return (
       <button className="hf-add hf-add-footer" onClick={() => onChange({ footer: "" })}>

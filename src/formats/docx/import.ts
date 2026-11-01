@@ -1,9 +1,10 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
 import JSZip from "jszip";
-import { PAPER, TWIPS_PER_PX, emptyMeta, type DocMeta, type PageSize } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, emptyMeta, type DocMeta, type KeptPart, type PageSize } from "../../doc/meta";
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
+import { MEDIA_TYPES } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
 export type DroppedPart = "headers" | "footers" | "comments" | "footnotes" | "tracked_changes" | "page_setup" | "other_content";
@@ -52,6 +53,7 @@ interface Context {
   dropped: Set<DroppedPart>;
   page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
   textWidth: number; // px, the paper less its side margins: the widest a table is kept
+  sized?: boolean; // a picture is given the size the file drew it at: for the view of a header or footer, which has no text width to hold it to
 }
 
 // A block of the body before consecutive list and quote paragraphs are grouped.
@@ -79,7 +81,7 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     styles: readStyles(styles),
     nums: byId(numbering, "w:num", "w:numId"),
     abstracts: byId(numbering, "w:abstractNum", "w:abstractNumId"),
-    links: new Map([...relations].filter(([, rel]) => rel.external && SAFE_LINK.test(rel.target.trim())).map(([id, rel]) => [id, rel.target.trim()])),
+    links: safeLinks(relations),
     images: await images(zip, body, relations),
     counts: new Map(),
     dropped: await droppedParts(zip, body),
@@ -87,10 +89,14 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     textWidth: textWidthPx(lastSection(body)),
   };
   const doc = finish(trimCovers(blocks(body, ctx)));
-  const meta = await readHeaderFooter(zip, body, relations, ctx.dropped);
+  const meta = await readHeaderFooter(zip, body, relations, ctx);
   meta.pageSize = pageSizeOf(lastSection(body));
   return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
 }
+
+// Relationship id -> external URL, for the links a person can click.
+const safeLinks = (relations: Map<string, Relation>): Map<string, string> =>
+  new Map([...relations].filter(([, rel]) => rel.external && SAFE_LINK.test(rel.target.trim())).map(([id, rel]) => [id, rel.target.trim()]));
 
 // The properties of the last section: the one whose header, footer and paper DocBro keeps.
 function lastSection(body: Element): Element | null {
@@ -242,18 +248,21 @@ type HeaderFooterKind = "header" | "footer";
 const NOT_A_LINE = ["w:tbl", "w:drawing", "w:pict", "w:object", "w:sym", "w:contentPart", "w:txbxContent", "m:oMath", "c:chart", "dgm:*"];
 
 /**
- * The default header and footer of the last section, when each is a single plain paragraph.
- * A richer one, or a first/even-page variant, is left for `dropped` to report. The text of
- * a PAGE field is not part of the label; it only turns the footer's page numbers on.
+ * The default header and footer of the last section. One that is a single plain paragraph becomes the text
+ * zone (the text of a PAGE field is not part of the label; it only turns the footer's page numbers on). Any
+ * other is kept whole as a part, and written back as it was. A first/even-page variant, or a part that
+ * needs more than pictures, is left for `dropped` to report, as is any header the package has besides this one.
  */
 async function readHeaderFooter(
   zip: JSZip,
   body: Element,
   relations: Map<string, Relation>,
-  dropped: Set<DroppedPart>,
+  ctx: Context,
 ): Promise<DocMeta> {
   const meta = emptyMeta();
   const section = lastSection(body);
+  const { dropped } = ctx;
+  const counts = await partCounts(zip);
 
   for (const kind of ["header", "footer"] as const) {
     const refs = children(section, kind === "header" ? "w:headerReference" : "w:footerReference");
@@ -263,20 +272,85 @@ async function readHeaderFooter(
 
     const rel = relations.get(attr(refs[refs.length - 1], "r:id") ?? "");
     if (!rel || rel.external) continue;
-    const doc = await readXml(zip, partPath(rel.target));
-    const line = doc && simpleLine(doc, kind);
-    if (!line) continue;
+    const path = partPath(rel.target);
+    const doc = await readXml(zip, path);
+    if (!doc) continue;
+    const line = simpleLine(doc, kind);
+    const kept = line ? null : await keepPart(zip, path, doc, kind, ctx);
+    if (!line && !kept) continue;
 
     if (kind === "header") {
-      meta.header = line.text;
-      dropped.delete("headers");
-    } else {
+      if (line) meta.header = line.text;
+      else meta.headerPart = kept;
+    } else if (line) {
       meta.footer = line.text;
       meta.pageNumbers = line.pageNumbers;
-      dropped.delete("footers");
-    }
+    } else meta.footerPart = kept;
+    // Another part of this kind in the package is not written back, so it stays reported.
+    if (counts[kind] <= 1) dropped.delete(kind === "header" ? "headers" : "footers");
   }
   return meta;
+}
+
+async function partCounts(zip: JSZip): Promise<Record<HeaderFooterKind, number>> {
+  const counts = { header: 0, footer: 0 };
+  for (const override of children((await readXml(zip, "[Content_Types].xml"))?.documentElement, "ct:Override")) {
+    const type = attr(override, "ContentType") ?? "";
+    if (type.endsWith(".header+xml")) counts.header++;
+    if (type.endsWith(".footer+xml")) counts.footer++;
+  }
+  return counts;
+}
+
+const escapeAttr = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+// The part whole: its XML, its relationships and pictures (named so that they cannot clash with the body's), and a
+// document to show. Null when the part leans on anything but pictures and outside links: the file would be left
+// with a part that points at nothing.
+async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFooterKind, ctx: Context): Promise<KeptPart | null> {
+  const root = is(doc.documentElement, kind === "header" ? "w:hdr" : "w:ftr") ? doc.documentElement : null;
+  if (!root) return null;
+
+  const slash = path.lastIndexOf("/");
+  const relsDoc = await readXml(zip, `${path.slice(0, slash)}/_rels/${path.slice(slash + 1)}.rels`);
+  const media: Record<string, string> = {};
+  const lines: string[] = [];
+  for (const rel of children(relsDoc?.documentElement, "rel:Relationship")) {
+    const id = attr(rel, "Id");
+    const type = attr(rel, "Type") ?? "";
+    const target = attr(rel, "Target");
+    if (!id || !target) return null;
+    const external = attr(rel, "TargetMode") === "External";
+    let written = target;
+    if (!external) {
+      const source = partPath(target);
+      const extension = source.slice(source.lastIndexOf(".") + 1).toLowerCase();
+      const file = zip.file(source);
+      if (!type.endsWith("/image") || !file || !lookup(MEDIA_TYPES, extension)) return null;
+      const name = `${kind}-${Object.keys(media).length + 1}.${extension}`;
+      media[name] = await file.async("base64");
+      written = `media/${name}`;
+    }
+    lines.push(`<Relationship Id="${escapeAttr(id)}" Type="${escapeAttr(type)}" Target="${escapeAttr(written)}"${external ? ' TargetMode="External"' : ""}/>`);
+  }
+
+  const rels = lines.length
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${lines.join("")}</Relationships>`
+    : null;
+  return { xml: await zip.file(path)!.async("string"), rels, media, view: await viewOf(zip, root, relationships(relsDoc), ctx) };
+}
+
+// What the page shows of a kept part: its blocks, with the pictures put first. Word anchors a logo into a line of
+// text and lets the text run beside it; the page floats pictures to the left, which needs them ahead of the text.
+async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<JSONContent | null> {
+  try {
+    const part: Context = { ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), sized: true };
+    const content = blocks(root, part).map((node) =>
+      node.type === "image" ? { ...node, attrs: { ...node.attrs, cover: false } } : node);
+    return finish([...content.filter((n) => n.type === "image"), ...content.filter((n) => n.type !== "image")]);
+  } catch {
+    return null;
+  }
 }
 
 function simpleLine(doc: Document, kind: HeaderFooterKind): { text: string; pageNumbers: boolean } | null {
@@ -680,7 +754,15 @@ function runText(t: Element): string {
 function drawing(el: Element, ctx: Context, out: JSONContent[]): void {
   const blip = descendants(el, "a:blip")[0];
   if (attr(descendants(el, "a:graphicData")[0], "uri") !== PICTURE || !blip) return void ctx.dropped.add("other_content"); // shape, chart, group, …
-  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page));
+  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page), ctx.sized ? drawnSize(el) : null);
+}
+
+// The size a drawing was given, in px (9525 EMU to the px).
+function drawnSize(drawing: Element): { width: number; height: number } | null {
+  const extent = descendants(drawing, "wp:extent")[0];
+  const width = Math.round(Number(attr(extent, "cx")) / 9525);
+  const height = Math.round(Number(attr(extent, "cy")) / 9525);
+  return width > 0 && height > 0 ? { width, height } : null;
 }
 
 // A picture pinned to the page, text wrapping off, covering nearly all of it: the page's artwork, not a figure in the text.
@@ -701,9 +783,9 @@ function pict(el: Element, ctx: Context, out: JSONContent[]): void {
   else ctx.dropped.add("other_content");
 }
 
-function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false): void {
+function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false, size: { width: number; height: number } | null = null): void {
   const src = id ? ctx.images.get(id) : null;
-  if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }) } });
+  if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }), ...size } });
   else if (src === null) ctx.dropped.add("other_content"); // linked from outside the file, or EMF/TIFF/…
 }
 

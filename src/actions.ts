@@ -160,9 +160,15 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     print: () => window.print(),
     palette: openPalette,
     insertImage: () => void pickImage(editor),
-    toggleHeader: () => session.setMeta({ header: session.meta.header === null ? "" : null }),
-    toggleFooter: () =>
-      session.setMeta(session.meta.footer === null ? { footer: "" } : { footer: null, pageNumbers: false }),
+    // a header or footer kept from the file counts as on, and the item takes it away
+    toggleHeader: () => {
+      const { header, headerPart } = session.meta;
+      session.setMeta(header === null && !headerPart ? { header: "" } : { header: null, headerPart: null });
+    },
+    toggleFooter: () => {
+      const { footer, footerPart } = session.meta;
+      session.setMeta(footer === null && !footerPart ? { footer: "" } : { footer: null, footerPart: null, pageNumbers: false });
+    },
     togglePageNumbers: () => {
       const { footer, pageNumbers } = session.meta;
       session.setMeta(footer === null ? { footer: "", pageNumbers: true } : { pageNumbers: !pageNumbers });

@@ -294,16 +294,19 @@ export default function App() {
                 editor={editor}
                 large={ui.largerText}
                 layout={pageLayout}
+                headerPart={session?.meta.headerPart}
+                footerPart={session?.meta.footerPart}
                 paperRef={setPaper}
                 header={
                   session && (
-                    <HeaderZone text={session.meta.header} onChange={(patch) => session.setMeta(patch)} />
+                    <HeaderZone text={session.meta.header} kept={!!session.meta.headerPart} onChange={(patch) => session.setMeta(patch)} />
                   )
                 }
                 footer={
                   session && (
                     <FooterZone
                       text={session.meta.footer}
+                      kept={!!session.meta.footerPart}
                       pageNumbers={session.meta.pageNumbers}
                       pages={pages}
                       onChange={(patch) => session.setMeta(patch)}

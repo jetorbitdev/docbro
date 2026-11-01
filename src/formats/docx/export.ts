@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
+import JSZip from "jszip";
 import {
   AlignmentType,
   BorderStyle,
@@ -30,7 +31,8 @@ import {
   type ILevelsOptions,
   type IParagraphOptions,
 } from "docx";
-import { PAPER, TWIPS_PER_PX, type DocMeta } from "../../doc/meta";
+import { PAPER, TWIPS_PER_PX, type DocMeta, type KeptPart } from "../../doc/meta";
+import { MEDIA_TYPES } from "./media";
 
 type Block = Paragraph | Table;
 type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak;
@@ -60,7 +62,8 @@ interface Context {
 }
 
 // `meta.header` and `meta.footer` are the one-line zones DocBro's paper shows; page
-// numbers become a Page/NumPages field pair at the footer's right edge.
+// numbers become a Page/NumPages field pair at the footer's right edge. A header or footer
+// part the file came with is written back as it was, after the package is made.
 export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint8Array> {
   const paper = PAPER[meta?.pageSize ?? "letter"];
   const ctx: Context = { nextInstance: 0, starts: new Set([1]), imageWidth: (paper.width - 2 * MARGIN) / TWIPS_PER_PX,
@@ -68,11 +71,17 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
   };
   const children: Block[] = blocks(doc.content, ctx);
   if (children.length === 0) children.push(new Paragraph({}));
-  const header =
-    meta && meta.header !== null
+  // The library makes the part, the relationship and the section's reference; `graft` swaps in the file's own content.
+  const header = meta?.headerPart
+    ? new Header({ children: [new Paragraph({})] })
+    : meta && meta.header !== null
       ? new Header({ children: [new Paragraph({ children: meta.header ? [new TextRun(meta.header)] : [] })] })
       : undefined;
-  const footer = meta && (meta.footer !== null || meta.pageNumbers) ? new Footer({ children: [footerParagraph(meta)] }) : undefined;
+  const footer = meta?.footerPart
+    ? new Footer({ children: [new Paragraph({})] })
+    : meta && (meta.footer !== null || meta.pageNumbers)
+      ? new Footer({ children: [footerParagraph(meta)] })
+      : undefined;
 
   const file = new Document({
     creator: "DocBro",
@@ -113,7 +122,43 @@ export async function exportDocx(doc: JSONContent, meta?: DocMeta): Promise<Uint
       },
     ],
   });
-  return Packer.pack(file, "uint8array");
+  const bytes = await Packer.pack(file, "uint8array");
+  return meta?.headerPart || meta?.footerPart ? graft(bytes, { header: meta.headerPart, footer: meta.footerPart }) : bytes;
+}
+
+// The library writes files only, and so does the graft: a package with folder entries is not what Word makes.
+const NO_FOLDERS = { createFolders: false };
+
+// Puts the kept parts, their relationships and their pictures into a package that has a placeholder for each.
+async function graft(bytes: Uint8Array, parts: { header: KeptPart | null; footer: KeptPart | null }): Promise<Uint8Array> {
+  const zip = await JSZip.loadAsync(bytes);
+  const relsPath = "word/_rels/document.xml.rels";
+  const documentRels = await zip.file(relsPath)!.async("string");
+  const extensions = new Set<string>();
+
+  for (const [kind, part] of [["header", parts.header], ["footer", parts.footer]] as const) {
+    if (!part) continue;
+    const reference = [...documentRels.matchAll(/<Relationship\b[^>]*>/g)].map((m) => m[0]).find((tag) => new RegExp(`Type="[^"]*/${kind}"`).test(tag));
+    const target = reference && /Target="([^"]+)"/.exec(reference)?.[1];
+    if (!target) throw new Error(`The ${kind} could not be written`);
+    const path = `word/${target.replace(/^\/?(word\/)?/, "")}`;
+    zip.file(path, part.xml, NO_FOLDERS);
+    if (part.rels) zip.file(`word/_rels/${path.slice(path.lastIndexOf("/") + 1)}.rels`, part.rels, NO_FOLDERS);
+    for (const [name, data] of Object.entries(part.media)) {
+      zip.file(`word/media/${name}`, data, { ...NO_FOLDERS, base64: true });
+      extensions.add(name.slice(name.lastIndexOf(".") + 1));
+    }
+  }
+
+  // A picture's extension needs a content type of its own, which the library only adds for pictures it wrote.
+  const typesPath = "[Content_Types].xml";
+  let types = await zip.file(typesPath)!.async("string");
+  for (const extension of extensions) {
+    if (new RegExp(`<Default\\b[^>]*Extension="${extension}"`, "i").test(types)) continue;
+    types = types.replace(/(<Types\b[^>]*>)/, `$1<Default Extension="${extension}" ContentType="${MEDIA_TYPES[extension] ?? "application/octet-stream"}"/>`);
+  }
+  zip.file(typesPath, types, NO_FOLDERS);
+  return zip.generateAsync({ type: "uint8array" });
 }
 
 function footerParagraph(meta: DocMeta): Paragraph {

@@ -136,7 +136,7 @@ button,textarea{font-family:inherit}
 /* while a panel transition runs the reading position is held by startReadingAnchor; the browser's own anchoring would add to it */
 .scroll[data-pinning]{overflow-anchor:none}
 .canvas{display:flex;justify-content:center;align-items:flex-start;padding:48px 24px 160px}
-.paper{--pad-y:clamp(28px,7vw,80px);--pad-x:clamp(22px,7vw,84px);position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:var(--pad-y) var(--pad-x) 96px}
+.paper{--hf-offset:clamp(14px,3vw,32px);--pad-y:max(clamp(28px,7vw,80px),calc(var(--hf-offset) + var(--hf-h,0px) + 14px),calc(var(--hf-offset) + var(--hf-fh,0px) + 14px));--pad-x:clamp(22px,7vw,84px);position:relative;width:100%;max-width:var(--paper-max);transition:max-width var(--panel-ms) var(--panel-curve);background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 40px -20px rgba(0,0,0,.18);padding:var(--pad-y) var(--pad-x) 96px}
 /* header and footer zones (mock 134–155) */
 .hf-add{position:absolute;left:0;right:0;border:0;background:transparent;opacity:0;cursor:pointer;font-size:12px;color:var(--muted);text-align:left;padding:0 16px;transition:opacity .15s}
 .hf-add:hover{opacity:1}
@@ -173,6 +173,20 @@ button,textarea{font-family:inherit}
 .paper.paged>.hf-add{z-index:1}
 .paper.paged .hf-footer{position:absolute;left:var(--pad-x);right:var(--pad-x);bottom:14px;margin:0}
 .page-gap{display:block;pointer-events:none;user-select:none}
+/* a header and a footer kept from the file (PartView): read-only, in the margins of every sheet. Pictures float to the
+   left of the lines of text, which is where Word puts a logo anchored into a line. The copy in the flow is what is
+   measured (the margins grow to hold it), what shows before the text is laid out, and what is printed. */
+.hf-rich{display:flow-root;font-family:var(--doc-font);font-size:12.5px;line-height:1.5;color:var(--ink2);pointer-events:none}
+.hf-rich p{margin:0}
+.hf-rich img{float:left;max-width:40%;height:auto;margin:0 12px 4px 0}
+.hf-rich hr{clear:both;border:0;border-top:1px solid var(--line2);margin:6px 0 0}
+.hf-sheet-top,.hf-sheet-bottom{position:absolute;left:var(--pad-x);right:var(--pad-x)}
+.hf-sheet-top{top:var(--hf-offset)}
+.hf-sheet-bottom{bottom:var(--hf-offset)}
+.hf-flow-top{margin-bottom:24px}
+.hf-flow-bottom{margin-top:24px}
+.paper.paged .hf-flow{position:absolute;left:var(--pad-x);right:var(--pad-x);top:0;margin:0;visibility:hidden}
+.paper.paged .hf-flow-bottom{top:auto;bottom:0}
 .comments-rail{width:0;flex-shrink:0;position:relative;align-self:stretch;overflow:hidden;visibility:hidden;transition:width var(--panel-ms) var(--panel-curve),visibility 0s linear var(--panel-ms)}
 /* the width takes in the gap between the page and the cards, so the page glides as the rail opens */
 .comments-rail.open{width:calc(var(--comments-w) + var(--comments-gap));visibility:visible;transition:width var(--panel-ms) var(--panel-curve),visibility 0s}
@@ -305,6 +319,9 @@ button,textarea{font-family:inherit}
   .doc [data-page-break]{height:0;overflow:hidden;break-after:page}
   .doc [data-page-break]::before,.doc [data-page-break]::after,.doc [data-page-break] span{display:none}
   .doc img[data-cover]{width:100%;height:auto;margin:0;border-radius:0;break-after:page}
+  .paper.paged .hf-flow{position:static;visibility:visible}
+  .hf-flow-top{margin-bottom:16px}
+  .hf-flow-bottom{margin-top:16px}
   .doc .tableWrapper{overflow:visible}
   .doc .column-resize-handle{display:none}
 }

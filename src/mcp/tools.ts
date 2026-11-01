@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, type Mark, type MarkType, type Node as PMNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
+import { partText } from "../doc/meta";
 import type { DocSession } from "../doc/session";
 import { blockCount, blockRange } from "../editor/blockAddress";
 import { findAll, replaceAll } from "../editor/find";
@@ -173,8 +174,8 @@ function documentInfo({ editor, session }: ToolContext): string {
     blocks: blockCount(doc),
     words,
     characters,
-    header: session.meta.header,
-    footer: session.meta.footer,
+    header: session.meta.header ?? partText(session.meta.headerPart),
+    footer: session.meta.footer ?? partText(session.meta.footerPart),
     page_numbers: session.meta.pageNumbers,
     dropped: session.dropped,
     outline: outlineOf(doc).map(({ pos, level, text }) => ({ block: doc.resolve(pos).index(0) + 1, level, text })),

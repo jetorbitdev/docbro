@@ -417,7 +417,7 @@ test("document_info_describes_the_document", async () => {
     ],
   });
 
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only" }));
   await ok("open_document", { path: "/d/lossy.docx", discard: true });
   expect(JSON.parse(await ok("document_info"))).toMatchObject({
     name: "lossy.docx",
@@ -432,7 +432,7 @@ test("document_info_describes_the_document", async () => {
 test("open_document_reports_blocks_and_parts_it_could_not_keep", async () => {
   io.files.set("/d/a.md", new TextEncoder().encode("# A\n\nbody"));
   expect(await ok("open_document", { path: "/d/a.md" })).toBe("Opened a.md (2 blocks).");
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only" }));
   expect(await ok("open_document", { path: "/d/lossy.docx" })).toBe(
     "Opened lossy.docx (2 blocks). DocBro can't keep these parts of the file: headers, tracked changes, other content. " +
       "Saving over the file will remove them.");
@@ -454,7 +454,7 @@ test("save_document_passes_the_sessions_refusals_through", async () => {
   expect(await err("save_document", { path: "/d/taken.md" })).toBe("/d/taken.md already exists. Pass overwrite: true to replace it.");
   expect(await ok("save_document", { path: "/d/taken.md", overwrite: true })).toBe("Saved to /d/taken.md.");
 
-  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs" }));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only" }));
   await ok("open_document", { path: "/d/lossy.docx" });
   expect(await err("save_document")).toBe(
     "Saving will remove parts DocBro can't keep: headers, tracked changes, other content. Save under a new name, or confirm.");
@@ -474,4 +474,13 @@ test("block_addresses_are_one_based_and_inclusive", () => {
 test("every_tool_has_a_description", () => {
   for (const n of TOOL_NAMES) expect(TOOL_DESCRIPTIONS[n].length).toBeGreaterThan(10);
   expect(TOOL_DESCRIPTIONS.insert_content).toMatch(/top-level/);
+});
+
+test("document_info_gives_the_text_of_a_kept_header_and_footer", async () => {
+  const view = (...lines: string[]) => ({ type: "doc", content: lines.map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })) });
+  session.setMeta({
+    headerPart: { xml: "<w:hdr/>", rels: null, media: {}, view: view("PT Jetorbit", "Technology For Your Business") },
+    footerPart: { xml: "<w:ftr/>", rels: null, media: {}, view: null },
+  });
+  expect(JSON.parse(await ok("document_info"))).toMatchObject({ header: "PT Jetorbit\nTechnology For Your Business", footer: "" }); // a footer that is there, with no text
 });

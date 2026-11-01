@@ -240,3 +240,16 @@ test("page_break_starts_a_new_page_and_leaves_an_empty_paragraph_to_type_in", ()
   expect(editor.state.selection.$from.parent).toBe(editor.state.doc.child(2));
   expect(byId(host(), "page_break")).toMatchObject({ group: "Insert", label: "Page break" });
 });
+
+test("a_kept_header_or_footer_shows_as_on_and_takes_the_page_number_toggle_out_of_play", () => {
+  const kept = { xml: "<w:hdr/>", rels: null, media: {}, view: null };
+  const actions = { toggleHeader: () => {}, toggleFooter: () => {}, togglePageNumbers: () => {} };
+  expect(byId(host({ actions }), "header").state).toBe("");
+  expect(byId(host({ actions }), "page_numbers").enabled).toBe(true);
+
+  session.setMeta({ headerPart: kept, footerPart: kept });
+  expect(byId(host({ actions }), "header").state).toBe("On");
+  expect(byId(host({ actions }), "footer").state).toBe("On");
+  // a footer kept from the file has page numbers of its own, so there is nothing to switch
+  expect(byId(host({ actions }), "page_numbers").enabled).toBe(false);
+});

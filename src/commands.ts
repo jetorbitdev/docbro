@@ -93,9 +93,10 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("divider", "Insert", "—", "Divider", "", block("hr")),
     cmd("page_break", "Insert", "⤓", "Page break", "", block("pagebreak")),
     cmd("comment", "Insert", "✎", "Comment on selection", "⌥⌘M", actions.addComment),
-    cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null),
-    cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null),
-    cmd("page_numbers", "Insert", "#", "Page numbers", "", actions.togglePageNumbers, meta.pageNumbers),
+    cmd("header", "Insert", "▔", "Header", "", actions.toggleHeader, meta.header !== null || !!meta.headerPart),
+    cmd("footer", "Insert", "▁", "Footer", "", actions.toggleFooter, meta.footer !== null || !!meta.footerPart),
+    // a footer kept from the file has its own page numbers, if any
+    cmd("page_numbers", "Insert", "#", "Page numbers", "", meta.footerPart ? undefined : actions.togglePageNumbers, meta.pageNumbers),
     // These act on the table around the caret and do nothing anywhere else.
     cmd("column_before", "Insert", "▥", "Add column before", "", edit((c) => c.addColumnBefore())),
     cmd("column_after", "Insert", "▥", "Add column after", "", edit((c) => c.addColumnAfter())),

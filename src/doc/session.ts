@@ -171,7 +171,7 @@ export class DocSession {
         throw new LossyWriteError(`Saving will remove parts DocBro can't keep: ${parts}. Save under a new name, or confirm.`);
       }
       if (format === "md") {
-        const parts = [meta.comments.length && "comments", meta.header && "headers", meta.footer && "footers"].filter(Boolean);
+        const parts = [meta.comments.length && "comments", (meta.header || meta.headerPart) && "headers", (meta.footer || meta.footerPart) && "footers"].filter(Boolean);
         if (parts.length) throw new LossyWriteError(`Markdown can't keep ${parts.join(", ")}. Save as .docx, or confirm.`);
       }
     }

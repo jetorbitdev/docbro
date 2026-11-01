@@ -38,7 +38,8 @@ export async function buildDocx(parts: {
   document: string;
   styles?: string;
   numbering?: string;
-  header?: boolean | "two-paragraphs";
+  // "first-page-only" is a header Word shows on the first page alone: a variant DocBro keeps nowhere.
+  header?: boolean | "two-paragraphs" | "first-page-only";
   comments?: boolean;
 }): Promise<Uint8Array> {
   const overrides = [`<Override PartName="/word/document.xml" ContentType="${TYPE}.document.main+xml"/>`];
@@ -68,7 +69,7 @@ export async function buildDocx(parts: {
 
   // Without a section reference Word would not use the header, and the importer would not see it.
   const section = headerId
-    ? `<w:sectPr><w:headerReference w:type="default" r:id="${headerId}"/>` +
+    ? `<w:sectPr><w:headerReference w:type="${parts.header === "first-page-only" ? "first" : "default"}" r:id="${headerId}"/>` +
       '<w:pgSz w:w="12240" w:h="15840"/>' +
       '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
     : "";

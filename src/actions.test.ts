@@ -352,3 +352,18 @@ test("find_and_replace_open_the_find_bar_in_their_two_modes", () => {
   expect(without.find).toBeUndefined();
   expect(without.replace).toBeUndefined();
 });
+
+test("a_kept_header_or_footer_is_switched_off_with_the_same_menu_item_and_page_numbers_leave_it_alone", () => {
+  const ui = {} as UiState;
+  const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, shell: fakeShell() });
+  const kept = { xml: "<w:hdr/>", rels: null, media: {}, view: null };
+
+  session.setMeta({ headerPart: kept, footerPart: kept });
+  actions.toggleHeader!(); // it is on, so this turns it off, and does not add a text header beside it
+  expect(session.meta).toMatchObject({ header: null, headerPart: null });
+  actions.toggleFooter!();
+  expect(session.meta).toMatchObject({ footer: null, footerPart: null, pageNumbers: false });
+
+  actions.toggleHeader!(); // and off again means the text zone
+  expect(session.meta).toMatchObject({ header: "", headerPart: null });
+});

@@ -130,7 +130,8 @@ class Paginator {
     const paper = view.dom.closest<HTMLElement>(".paper");
     if (paper && paper !== this.observed) {
       if (this.observed) this.observer?.unobserve(this.observed);
-      this.observer?.observe(paper);
+      // the border box: a kept header or footer changes the paper's padding, which the content box does not see
+      this.observer?.observe(paper, { box: "border-box" });
       this.observed = paper;
     }
     const geometry = paper ? options.geometry(paper) : null;

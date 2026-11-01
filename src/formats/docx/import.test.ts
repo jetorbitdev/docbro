@@ -32,7 +32,7 @@ test("reads_word_style_names_lists_and_highlight", async () => {
 });
 
 test("reports_parts_it_cannot_keep", async () => {
-  const bytes = await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "two-paragraphs", comments: true });
+  const bytes = await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only", comments: true });
   const { doc, dropped } = await importDocx(bytes);
   expect(dropped).toEqual(expect.arrayContaining(["headers", "comments", "tracked_changes", "other_content"]));
   expect(plainText(doc)).toContain("inserted");
@@ -61,8 +61,8 @@ test("page_numbers_alone_create_a_footer", async () => {
   expect(back.dropped).toEqual([]);
 });
 
-test("a_complex_header_is_still_reported_as_dropped", async () => {
-  const { dropped } = await importDocx(await buildDocx({ document: WORD_STYLE_BODY, header: "two-paragraphs" }));
+test("a_first_page_header_is_still_reported_as_dropped", async () => {
+  const { dropped } = await importDocx(await buildDocx({ document: WORD_STYLE_BODY, header: "first-page-only" }));
   expect(dropped).toEqual(["headers"]);
 });
 
