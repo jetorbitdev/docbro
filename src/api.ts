@@ -56,6 +56,16 @@ export interface McpStatus {
  */
 export type AssistantEngine = "claude_code" | "api_key" | "openai_compatible";
 
+/**
+ * The other provider's form before it is saved, for `assistantListModels`. `api_key` null (or
+ * left out) uses the saved key, but only when `base_url` has the saved base URL's origin.
+ */
+export interface ProviderDraft {
+  preset: string;
+  base_url: string;
+  api_key?: string | null;
+}
+
 /** A provider the settings offer (`assistantPresets`); its base URL fills the form and stays editable. */
 export interface ProviderPreset {
   /** `openai`, `openrouter`, `gemini`, `groq`, `deepseek`, `mistral`, `ollama`, `lmstudio` or `custom` */
@@ -178,9 +188,10 @@ export const api = {
   serversTest: (config: ServerConfig) => invoke<string[]>("servers_test", { config }),
   assistantStatus: () => invoke<AssistantStatus>("assistant_status"),
   /**
-   * `apiKey` null keeps the saved key. Without `engine` the engine stays and `model` is the API's;
-   * with it, `engine` is picked and `model` is that engine's. Rejects when `model` is empty (or,
-   * for Claude Code, not a plain model name).
+   * `apiKey` is the Anthropic key; null keeps the saved one. Without `engine` the engine stays and
+   * `model` is the API's; with it, `engine` is picked and `model` is that engine's. Rejects when
+   * `model` is empty (or, for Claude Code, not a plain model name), and rejects any `apiKey` with
+   * `openai_compatible`: the provider's key is saved with `assistantSaveOpenai`.
    */
   assistantSave: (apiKey: string | null, model: string, engine?: AssistantEngine) =>
     invoke<AssistantStatus>("assistant_save", engine ? { apiKey, model, engine } : { apiKey, model }),
@@ -196,8 +207,12 @@ export const api = {
    */
   assistantSaveOpenai: (preset: string, baseUrl: string, model: string, apiKey: string | null) =>
     invoke<AssistantStatus>("assistant_save_openai", { preset, baseUrl, model, apiKey }),
-  /** The saved provider's models, sorted. Rejects with a readable error. */
-  assistantListModels: () => invoke<string[]>("assistant_list_models"),
+  /**
+   * The provider's models, sorted: the saved provider's, or with `draft` the form's, unsaved (saves
+   * nothing and keeps the engine). Rejects with a readable error.
+   */
+  assistantListModels: (draft?: ProviderDraft) =>
+    invoke<string[]>("assistant_list_models", draft ? { draft } : undefined),
   /** The providers the settings offer, in their order; the last is Custom. */
   assistantPresets: () => invoke<ProviderPreset[]>("assistant_presets"),
   /**

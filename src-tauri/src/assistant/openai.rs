@@ -102,6 +102,15 @@ pub struct OpenAiStatus {
     pub configured: bool,
 }
 
+/// The provider settings in the form, not saved yet. No `Debug`: it may carry a key.
+#[derive(Deserialize)]
+pub struct ProviderDraft {
+    pub preset: String,
+    pub base_url: String,
+    /// None (or blank) uses the saved key, if the base URL has its origin
+    pub api_key: Option<String>,
+}
+
 /// Where a request goes. No key in it: `Debug` is safe.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Endpoint {
@@ -113,7 +122,7 @@ pub(crate) struct Endpoint {
 }
 
 impl Endpoint {
-    fn is_loopback(&self) -> bool {
+    pub(crate) fn is_loopback(&self) -> bool {
         origin(&self.base_url).is_some_and(|(_, host, _)| is_loopback(&host))
     }
 }
@@ -395,7 +404,7 @@ impl ChunkParser {
             events.push(StreamEvent::Text(text.to_string()));
         }
         for (position, call) in delta["tool_calls"].as_array().into_iter().flatten().enumerate() {
-            let index = call["index"].as_u64().unwrap_or(position as u64);
+            let index = call["index"].as_u64().unwrap_or_else(|| self.index_of(call, position));
             let (id, name, arguments) = self.tools.entry(index).or_default();
             // the id and name come with the first piece; some providers repeat them
             if let Some(v) = call["id"].as_str().filter(|_| id.is_empty()) {
@@ -414,6 +423,15 @@ impl ChunkParser {
         if let Some(reason) = choice["finish_reason"].as_str() {
             self.finish(Some(reason), events);
         }
+    }
+
+    /// Where a piece of a tool call that came without an index goes: a call of its own when it
+    /// is not the first in its chunk or carries another id than the last call (as Gemini sends
+    /// each call whole in a chunk of its own), else the last call.
+    fn index_of(&self, call: &Value, position: usize) -> u64 {
+        let Some((&last, (last_id, _, _))) = self.tools.last_key_value() else { return 0 };
+        let other_id = call["id"].as_str().is_some_and(|id| !id.is_empty() && !last_id.is_empty() && id != last_id);
+        if position > 0 || other_id { last + 1 } else { last }
     }
 
     /// The tool calls, one per index, then the reason in the Anthropic API's words.
@@ -447,33 +465,50 @@ fn error_message(v: &Value) -> String {
 
 fn says_no_tools(message: &str) -> bool {
     let m = message.to_lowercase();
-    let says_no = ["not support", "unsupported", "doesn't support", "no endpoints found that support"];
-    m.contains("tool") && says_no.iter().any(|s| m.contains(s))
+    let says_no = ["not support", "unsupported", "doesn't support", "no endpoints found that support", "not enabled"];
+    (m.contains("tool") || m.contains("function call")) && says_no.iter().any(|s| m.contains(s))
 }
 
-/// What a failed request is shown as. `body` is the provider's answer, with the key already
-/// hidden; `model` is None for the model list.
+/// The message in a provider's answer to a failed request.
+fn body_message(body: &str) -> String {
+    serde_json::from_str::<Value>(body).map(|v| error_message(&v)).unwrap_or_else(|_| body.trim().to_string())
+}
+
+/// What a failed request is shown as. `body` is the provider's answer; `model` is None for the
+/// model list.
+#[cfg(test)]
 pub(crate) fn http_error(status: u16, body: &str, name: &str, model: Option<&str>) -> String {
-    let message = serde_json::from_str::<Value>(body).map(|v| error_message(&v)).unwrap_or_else(|_| body.trim().to_string());
+    describe(status, &body_message(body), name, model)
+}
+
+/// `message` is what the provider said, with the key already hidden.
+fn describe(status: u16, message: &str, name: &str, model: Option<&str>) -> String {
     match (status, model) {
-        (400 | 404 | 422, Some(model)) if says_no_tools(&message) => {
+        (400 | 404 | 422, Some(model)) if says_no_tools(message) => {
             format!("The model \"{model}\" cannot use tools. Pick a model with tool calling.")
         }
         (401 | 403, _) => format!("The API key was rejected by {name}. Check it in MCP settings."),
         (429, _) => format!("Rate limited by {name}. Try again in a moment."),
         (404, Some(model)) => format!("The model \"{model}\" is not available at {name}."),
-        (400 | 422, Some(model)) if is_about_the_model(&message) => format!("The model \"{model}\" is not available at {name}."),
+        (400 | 422, Some(model)) if is_about_the_model(message) => format!("The model \"{model}\" is not available at {name}."),
         _ if message.is_empty() => format!("{name} error {status}."),
-        _ => format!("{name} error {status}: {}", cut(&message, 300)),
+        _ => format!("{name} error {status}: {}", cut(message, 300)),
     }
 }
 
 // ------------------------------------------------------------------ the API
 
-fn agent() -> ureq::Agent {
+/// The client for `endpoint`, with the system's proxy (`HTTP_PROXY` and the like).
+pub(crate) fn agent(endpoint: &Endpoint) -> ureq::Agent {
+    agent_with(endpoint, ureq::Proxy::try_from_env())
+}
+
+pub(crate) fn agent_with(endpoint: &Endpoint, system_proxy: Option<ureq::Proxy>) -> ureq::Agent {
     ureq::Agent::config_builder()
         // a redirect could carry the key to another host
         .max_redirects(0)
+        // plain http to this computer must not go through a proxy, which would read it all
+        .proxy(if endpoint.is_loopback() { None } else { system_proxy })
         .http_status_as_error(false)
         .user_agent(concat!("DocBro/", env!("CARGO_PKG_VERSION")))
         .timeout_connect(Some(CONNECT_TIMEOUT))
@@ -502,25 +537,27 @@ fn unreachable(error: &ureq::Error, endpoint: &Endpoint) -> String {
     }
 }
 
-/// A failed answer's status and text: at most 64 KiB of it, with the key hidden before
-/// `http_error` cuts the message, so a cut never leaves part of the key.
+/// A failed answer's status and message, from at most 64 KiB of it. The key is hidden before
+/// `describe` cuts the message, so a cut never leaves part of the key, and both in the raw text
+/// and in the message read from it, which may have spelled the key with JSON escapes.
 fn failure(res: ureq::http::Response<ureq::Body>, key: &str) -> (u16, String) {
     let status = res.status().as_u16();
     let mut answer = Vec::new();
     let _ = res.into_body().into_reader().take(64 * 1024).read_to_end(&mut answer);
-    (status, hide_key(String::from_utf8_lossy(&answer).into_owned(), key))
+    let answer = hide_key(String::from_utf8_lossy(&answer).into_owned(), key);
+    (status, hide_key(body_message(&answer), key))
 }
 
 /// The provider's models, sorted: `GET {base}/models`.
 pub(crate) fn list_models(key: &str, endpoint: &Endpoint) -> CmdResult<Vec<String>> {
-    let mut request = agent().get(format!("{}/models", endpoint.base_url));
+    let mut request = agent(endpoint).get(format!("{}/models", endpoint.base_url));
     if !key.is_empty() {
         request = request.header("Authorization", format!("Bearer {key}"));
     }
     let res = request.call().map_err(|e| unreachable(&e, endpoint))?;
     if !res.status().is_success() {
-        let (status, answer) = failure(res, key);
-        return Err(http_error(status, &answer, &endpoint.name, None));
+        let (status, message) = failure(res, key);
+        return Err(describe(status, &message, &endpoint.name, None));
     }
     let no_list = || format!("{} did not send a list of models.", endpoint.name);
     let text = res.into_body().read_to_string().map_err(|_| no_list())?;
@@ -550,7 +587,7 @@ impl OpenAiModel {
     /// `tools` is `build_tools`' list, in the Anthropic shape.
     pub(crate) fn new(key: &str, model: &str, endpoint: Endpoint, system: String, tools: Vec<Value>, cancel: Arc<AtomicBool>) -> OpenAiModel {
         let tools = chat_tools(&tools);
-        OpenAiModel { agent: agent(), key: key.into(), model: model.into(), endpoint, system, tools, cancel }
+        OpenAiModel { agent: agent(&endpoint), key: key.into(), model: model.into(), endpoint, system, tools, cancel }
     }
 
     fn send(&self, body: &Value) -> Result<ureq::http::Response<ureq::Body>, String> {
@@ -584,17 +621,17 @@ impl Model for OpenAiModel {
         }
         let mut res = self.send(&body)?;
         if !res.status().is_success() {
-            let (status, answer) = failure(res, &self.key);
+            let (status, message) = failure(res, &self.key);
             // OpenAI's newer models only take the newer name of the same limit
-            if status != 400 || !answer.contains("max_completion_tokens") {
-                return Err(http_error(status, &answer, &self.endpoint.name, Some(&self.model)));
+            if status != 400 || !message.contains("max_completion_tokens") {
+                return Err(describe(status, &message, &self.endpoint.name, Some(&self.model)));
             }
             let limit = body.as_object_mut().and_then(|b| b.remove("max_tokens"));
             body["max_completion_tokens"] = limit.unwrap_or(json!(MAX_TOKENS));
             res = self.send(&body)?;
             if !res.status().is_success() {
-                let (status, answer) = failure(res, &self.key);
-                return Err(http_error(status, &answer, &self.endpoint.name, Some(&self.model)));
+                let (status, message) = failure(res, &self.key);
+                return Err(describe(status, &message, &self.endpoint.name, Some(&self.model)));
             }
         }
         let mut reader = res.into_body().into_reader();

@@ -41,7 +41,7 @@ use crate::{
 };
 
 mod openai;
-use openai::{Endpoint, OpenAiModel, OpenAiStatus, Preset};
+use openai::{Endpoint, OpenAiModel, OpenAiStatus, Preset, ProviderDraft};
 
 /// Same as `identifier` in tauri.conf.json.
 const APP_ID: &str = "com.jetorbit.docbro";
@@ -75,6 +75,7 @@ pub(crate) const NO_KEY: &str = "Add your Anthropic API key in MCP settings firs
 pub(crate) const BUSY: &str = "The assistant is still answering. Stop it first.";
 const NO_MODEL: &str = "Enter a model name.";
 const NO_TEXT: &str = "Type a message first.";
+const NOT_ANTHROPIC_KEY: &str = "Enter the provider's API key in its own settings.";
 const KEY_REJECTED: &str = "The API key was rejected. Check it in MCP settings.";
 const RATE_LIMITED: &str = "Rate limited by the Anthropic API. Try again in a moment.";
 const UNREACHABLE: &str = "Could not reach the Anthropic API.";
@@ -304,9 +305,14 @@ impl Assistant {
         config.status(claude)
     }
 
-    /// `api_key` None (or blank) keeps the saved Anthropic key, whatever the engine. `engine` None
-    /// keeps the engine and makes `model` the API's model; otherwise `model` is that engine's.
+    /// `api_key` is the Anthropic key; None (or blank) keeps the saved one. `engine` None keeps
+    /// the engine and makes `model` the API's model; otherwise `model` is that engine's. With the
+    /// other provider's engine a key is refused: it would be sent to Anthropic.
     pub fn save(&self, api_key: Option<String>, model: String, engine: Option<Engine>) -> CmdResult<Status> {
+        let api_key = api_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        if engine == Some(Engine::OpenAiCompatible) && api_key.is_some() {
+            return Err(NOT_ANTHROPIC_KEY.into());
+        }
         let model = model.trim();
         if model.is_empty() {
             return Err(NO_MODEL.into());
@@ -316,7 +322,7 @@ impl Assistant {
         }
         let turn = self.saving.lock_recovering();
         let mut config = self.config();
-        if let Some(key) = api_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()) {
+        if let Some(key) = api_key {
             config.api_key = key;
         }
         match engine {
@@ -361,9 +367,14 @@ impl Assistant {
         Ok(self.status_of(config))
     }
 
-    /// The other provider's models, with the saved settings. Blocks on the network.
-    pub fn list_models(&self) -> CmdResult<Vec<String>> {
-        let settings = self.config().openai;
+    /// The other provider's models, with the saved settings, or with the form's before they are
+    /// saved: then the saved key only goes along to its own origin, as on a save. Saves nothing
+    /// and keeps the engine. Blocks on the network.
+    pub fn list_models(&self, draft: Option<ProviderDraft>) -> CmdResult<Vec<String>> {
+        let mut settings = self.config().openai;
+        if let Some(draft) = draft {
+            settings.update(&draft.preset, &draft.base_url, "", draft.api_key)?;
+        }
         openai::list_models(settings.key(), &settings.endpoint()?)
     }
 
@@ -1126,10 +1137,10 @@ pub async fn assistant_save_openai(
     with_assistant(app, move |a| a.save_openai(preset, base_url, model, api_key)).await?
 }
 
-/// The saved provider's models, sorted.
+/// The provider's models, sorted: the saved provider's, or the one in `draft` (unsaved).
 #[tauri::command]
-pub async fn assistant_list_models(app: AppHandle) -> CmdResult<Vec<String>> {
-    with_assistant(app, |a| a.list_models()).await?
+pub async fn assistant_list_models(draft: Option<ProviderDraft>, app: AppHandle) -> CmdResult<Vec<String>> {
+    with_assistant(app, move |a| a.list_models(draft)).await?
 }
 
 /// The providers the settings offer, in their order; the last is Custom.

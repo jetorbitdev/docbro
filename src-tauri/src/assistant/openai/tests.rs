@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::{
-    assistant::{run_turn, Assistant, Engine, Event, StreamEvent, ToolRunner},
+    assistant::{run_turn, Assistant, Engine, Event, StreamEvent, ToolRunner, DEFAULT_MODEL},
     mcp_client::{
         tests::{FakeHttp, Reply},
         ToolOutput,
@@ -343,6 +343,69 @@ fn stream_text_and_tool_call_fragments_assemble() {
 }
 
 #[test]
+fn parallel_calls_without_index_stay_apart() {
+    // each call whole in a chunk of its own, with no index (as Gemini sends them)
+    let gemini = [
+        chunk(json!({ "tool_calls": [{ "id": "g1", "type": "function", "function": { "name": "docbro__read_document", "arguments": "{\"from\":1}" } }] }), None),
+        chunk(json!({ "tool_calls": [{ "id": "g2", "type": "function", "function": { "name": "docbro__document_info", "arguments": "{}" } }] }), None),
+        finish("tool_calls"),
+        DONE.into(),
+    ]
+    .concat();
+    let want = vec![
+        use_tool("g1", "docbro__read_document", json!({ "from": 1 })),
+        use_tool("g2", "docbro__document_info", json!({})),
+        StreamEvent::Stop("tool_use".into()),
+    ];
+    for size in [3, 100_000] {
+        assert_eq!(feed_in_chunks(&gemini, size).0, want, "chunks of {size}");
+    }
+    // pieces of one call without index, its id repeated or left out, stay one call
+    let pieces = [
+        chunk(json!({ "tool_calls": [{ "id": "g1", "function": { "name": "docbro__read_document", "arguments": "{\"from\":" } }] }), None),
+        chunk(json!({ "tool_calls": [{ "id": "g1", "function": { "arguments": "1" } }] }), None),
+        chunk(json!({ "tool_calls": [{ "function": { "arguments": "}" } }] }), None),
+        chunk(json!({ "tool_calls": [{ "id": "g2", "function": { "name": "docbro__document_info" } }] }), None),
+        finish("tool_calls"),
+    ]
+    .concat();
+    assert_eq!(feed_in_chunks(&pieces, 7).0, want);
+    // two calls in one chunk without index
+    let both = [
+        chunk(json!({ "tool_calls": [
+            { "function": { "name": "docbro__read_document", "arguments": "{\"from\":1}" } },
+            { "function": { "name": "docbro__document_info", "arguments": "{}" } },
+        ] }), None),
+        finish("tool_calls"),
+    ]
+    .concat();
+    let names: Vec<String> = feed_in_chunks(&both, 5).0.into_iter().filter_map(|e| match e {
+        StreamEvent::ToolUse { name, input, .. } => Some(format!("{name} {input}")),
+        _ => None,
+    }).collect();
+    assert_eq!(names, ["docbro__read_document {\"from\":1}", "docbro__document_info {}"]);
+}
+
+#[test]
+fn requests_to_this_computer_skip_any_proxy() {
+    // a proxy from HTTP_PROXY would see the traffic, and a key, in the clear
+    let proxy = || Some(ureq::Proxy::new("http://proxy.example:3128").unwrap());
+    let local = endpoint("http://localhost:11434/v1", "ollama");
+    assert!(agent_with(&local, proxy()).config().proxy().is_none());
+    for url in ["http://127.0.0.1:1234/v1", "http://[::1]:8080/v1", "https://localhost:8443/v1"] {
+        assert!(agent_with(&endpoint(url, "custom"), proxy()).config().proxy().is_none(), "{url}");
+    }
+    // other hosts keep the system's proxy
+    let remote = endpoint("https://api.openai.com/v1", "openai");
+    assert!(agent_with(&remote, proxy()).config().proxy().is_some());
+    assert!(agent_with(&remote, None).config().proxy().is_none());
+    // chat and the model list both build their client this way
+    let model = OpenAiModel::new(KEY, "m", local.clone(), String::new(), vec![], Arc::new(AtomicBool::new(false)));
+    assert!(model.agent.config().proxy().is_none());
+    assert!(agent(&local).config().proxy().is_none());
+}
+
+#[test]
 fn stream_handles_split_lines_crlf_and_done() {
     let crlf = tool_stream().replace('\n', "\r\n");
     for size in [1, 2, 3, 50] {
@@ -561,6 +624,14 @@ fn openai_settings_are_saved_privately_and_pick_the_engine() {
     // the engine's model through the general save; the Anthropic key stays the Anthropic key
     let status = a.save(None, "openai/gpt-other".into(), Some(Engine::OpenAiCompatible)).unwrap();
     assert_eq!((status.openai.model.as_str(), status.model.as_str()), ("openai/gpt-other", "claude-sonnet-5-5"));
+    // a key given with this engine is never kept as the Anthropic key, which goes to Anthropic
+    assert_eq!(a.save(Some(OTHER_KEY.into()), "openai/gpt-x".into(), Some(Engine::OpenAiCompatible)).err().as_deref(),
+        Some("Enter the provider's API key in its own settings."));
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(!saved.contains(OTHER_KEY) && !saved.contains("gpt-x"), "{saved}");
+    assert_eq!(a.status().key_hint, None);
+    // a blank one is no key
+    a.save(Some("  ".into()), "openai/gpt-other".into(), Some(Engine::OpenAiCompatible)).unwrap();
     // a model may be left empty until the list is loaded, but then the engine is not ready
     let status = a.save_openai("openrouter".into(), String::new(), String::new(), None).unwrap();
     assert!(!status.configured && !status.openai.configured && status.openai.key_hint.is_some());
@@ -652,7 +723,7 @@ fn http_only_for_loopback() {
     fs::write(&path, json!({ "engine": "openai_compatible", "openai": { "preset": "custom", "base_url": "http://api.example.com/v1", "model": "m", "api_key": KEY } }).to_string()).unwrap();
     assert!(!a.status().configured);
     assert_eq!(a.begin("main", "Hi").err().as_deref(), Some(https));
-    assert_eq!(a.list_models().err().as_deref(), Some(https));
+    assert_eq!(a.list_models(None).err().as_deref(), Some(https));
 }
 
 #[test]
@@ -683,11 +754,40 @@ fn list_models_sorted() {
     // with the saved settings
     let (a, _) = assistant("models");
     a.save_openai("custom".into(), server.url.clone(), String::new(), Some(KEY.into())).unwrap();
-    assert_eq!(a.list_models().unwrap(), ["gpt-a", "gpt-b", "gpt-c"]);
+    assert_eq!(a.list_models(None).unwrap(), ["gpt-a", "gpt-b", "gpt-c"]);
     // a key the preset needs and does not have
     a.save_openai("openai".into(), String::new(), String::new(), None).unwrap();
     a.clear_openai_key().unwrap();
-    assert_eq!(a.list_models().err(), Some("Add your OpenAI API key in MCP settings first.".into()));
+    assert_eq!(a.list_models(None).err(), Some("Add your OpenAI API key in MCP settings first.".into()));
+
+    // the form's settings, before they are saved: the engine and the file stay as they were
+    let (b, path) = assistant("models-draft");
+    let other = FakeHttp::start(|_, _| Reply::json(json!({ "data": [{ "id": "other-model" }] })));
+    b.save_openai("custom".into(), server.url.clone(), "gpt-a".into(), Some(KEY.into())).unwrap();
+    b.save(None, DEFAULT_MODEL.into(), Some(Engine::ApiKey)).unwrap();
+    let before = fs::read_to_string(&path).unwrap();
+    let draft = |preset: &str, base_url: &str, api_key: Option<&str>| ProviderDraft {
+        preset: preset.into(),
+        base_url: base_url.into(),
+        api_key: api_key.map(str::to_string),
+    };
+    let seen = server.seen().len();
+    // the saved origin: the saved key goes along
+    assert_eq!(b.list_models(Some(draft("custom", &format!("{}/", server.url), None))).unwrap(), ["gpt-a", "gpt-b", "gpt-c"]);
+    assert_eq!(server.seen()[seen].header("Authorization"), Some(format!("Bearer {KEY}").as_str()));
+    // another origin: the saved key stays home
+    assert_eq!(b.list_models(Some(draft("custom", &other.url, None))).unwrap(), ["other-model"]);
+    assert_eq!(other.seen()[0].header("Authorization"), None);
+    // a key typed in the form goes where the form says
+    b.list_models(Some(draft("custom", &other.url, Some(OTHER_KEY)))).unwrap();
+    assert_eq!(other.seen()[1].header("Authorization"), Some(format!("Bearer {OTHER_KEY}").as_str()));
+    // the same checks as a save
+    assert_eq!(b.list_models(Some(draft("custom", "http://api.example.com/v1", None))).err().as_deref(),
+        Some("The base URL must start with https:// (http:// only for this computer)."));
+    assert_eq!(b.list_models(Some(draft("openai", "", None))).err(), Some("Add your OpenAI API key in MCP settings first.".into()));
+    assert_eq!(b.list_models(Some(draft("nope", "", None))).err(), Some("Pick a provider.".into()));
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    assert_eq!(b.status().engine, Engine::ApiKey);
 
     // GET on the base URL's path, plus /models
     let raw = Raw::start(vec![json!({ "data": [{ "id": "llama3.2" }] }).to_string()]);
@@ -715,6 +815,9 @@ fn error_statuses_map_to_messages() {
     assert_eq!(http_error(400, r#"{"error":{"message":"registry.ollama.ai/library/gemma:2b does not support tools","type":"api_error"}}"#, "Ollama", m), no_tools);
     assert_eq!(http_error(404, r#"{"error":{"message":"No endpoints found that support tool use. To learn more about provider routing, visit: https://openrouter.ai/docs","code":404}}"#, "OpenRouter", m), no_tools);
     assert_eq!(http_error(400, r#"{"error":{"message":"tools is not supported with this model","type":"invalid_request_error"}}"#, "Groq", m), no_tools);
+    // and what DeepSeek and Mistral say, in other words
+    assert_eq!(http_error(400, r#"{"error":{"message":"deepseek-reasoner does not support Function Calling","type":"invalid_request_error"}}"#, "DeepSeek", m), no_tools);
+    assert_eq!(http_error(400, r#"{"object":"error","message":"Function calling is not enabled for this model","type":"invalid_request_error"}"#, "Mistral", m), no_tools);
     // Gemini answers with a list
     assert_eq!(http_error(400, r#"[{"error":{"code":400,"message":"Invalid JSON payload received.","status":"INVALID_ARGUMENT"}}]"#, "Google Gemini", m),
         "Google Gemini error 400: Invalid JSON payload received.");
@@ -791,6 +894,20 @@ fn errors_never_contain_the_key() {
         assert!(error.starts_with("OpenAI error 500: xxx"), "{error}");
         texts.push(error);
     }
+    // the key written with JSON escapes, which only decoding brings back
+    let escaped = move |headers: &[(String, String)]| echo(headers).chars().map(|c| format!("\\u{:04x}", c as u32)).collect::<String>();
+    for status in [400, 500] {
+        let server = FakeHttp::start(move |_, headers| {
+            Reply::status(status, &format!(r#"{{"error":{{"message":"bad {}"}}}}"#, escaped(headers)))
+        });
+        let error = model(&server.url).stream(&json!({ "messages": [] }), &mut |_| {}).unwrap_err();
+        assert!(error.contains("[hidden]"), "{error}");
+        texts.push(error);
+        texts.extend(list_models(&run.key, &endpoint(&server.url, "openai")).err());
+    }
+    let server = FakeHttp::start(move |_, headers| Reply::sse(format!("data: {{\"error\":{{\"message\":\"no {}\"}}}}\n\n", escaped(headers))));
+    texts.extend(model(&server.url).stream(&json!({ "messages": [] }), &mut |_| {}).err());
+
     // in the stream, and through the loop
     let server = FakeHttp::start(move |_, headers| {
         let error = json!({ "error": { "message": format!("no {}", echo(headers)) } });
@@ -803,10 +920,10 @@ fn errors_never_contain_the_key() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     texts.extend(model(&format!("http://127.0.0.1:{port}/v1")).stream(&json!({ "messages": [] }), &mut |_| {}).err());
 
-    assert!(texts.len() >= 34, "{texts:?}");
+    assert!(texts.len() >= 39, "{texts:?}");
     for text in &texts {
-        // not even partly: no 8 or more of its first characters
-        assert!(!text.contains(&KEY[..8]), "the key leaked: {text}");
+        // not even partly: no 8 or more of its first characters, nor its secret part
+        assert!(!text.contains(&KEY[..8]) && !text.contains("SECRETKEY"), "the key leaked: {text}");
     }
     assert!(texts.iter().any(|t| t.contains("[hidden]")), "{texts:?}");
 }

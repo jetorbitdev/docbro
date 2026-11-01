@@ -86,7 +86,11 @@ describe("api", () => {
       apiKey: null,
     });
     await api.assistantListModels();
-    expect(invoke).toHaveBeenLastCalledWith("assistant_list_models");
+    expect(invoke).toHaveBeenLastCalledWith("assistant_list_models", undefined);
+    await api.assistantListModels({ preset: "custom", base_url: "https://llm.example.com/v1", api_key: null });
+    expect(invoke).toHaveBeenLastCalledWith("assistant_list_models", {
+      draft: { preset: "custom", base_url: "https://llm.example.com/v1", api_key: null },
+    });
     await api.assistantPresets();
     expect(invoke).toHaveBeenLastCalledWith("assistant_presets");
     await api.assistantClearKey("openai_compatible");
