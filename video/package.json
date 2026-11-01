@@ -1,0 +1,26 @@
+{
+  "name": "docbro-teaser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "voice": "~/.local/share/uv/tools/edge-tts/bin/python3 scripts/voice.py",
+    "music": "uv run --no-project --with numpy python scripts/music.py",
+    "studio": "remotion studio",
+    "render": "remotion render DocBroTeaser out/raw.mp4 && ffmpeg -y -loglevel error -i out/raw.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k out/docbro-teaser.mp4",
+    "still": "remotion still DocBroTeaser out/frame.png",
+    "typecheck": "tsc --noEmit",
+    "render:reel": "remotion render DocBroReel out/raw-reel.mp4 && ffmpeg -y -loglevel error -i out/raw-reel.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k out/docbro-reel.mp4"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@remotion/cli": "4.0.539",
+    "@remotion/fonts": "4.0.539",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "4.0.539"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.0"
+  }
+}
