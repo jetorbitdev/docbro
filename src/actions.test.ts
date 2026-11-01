@@ -330,6 +330,7 @@ test("every_command_is_enabled_in_the_real_app", () => {
     openPalette: () => {},
     openLink: () => {},
     openColor: () => {},
+    openFont: () => {},
     openFind: () => {},
     shell: fakeShell(),
   });

@@ -39,6 +39,7 @@ import {
 } from "docx";
 import { PAPER, TWIPS_PER_PX, type DocLook, type DocMeta, type KeptPart, type Spacing } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
+import { fontName } from "../../editor/fonts";
 import { MEDIA_TYPES } from "./media";
 
 type Block = Paragraph | Table;
@@ -462,6 +463,7 @@ const hex = (color: unknown): string | undefined =>
 function text(node: JSONContent): TextRun | ExternalHyperlink {
   const mark = (type: string) => node.marks?.find((m) => m.type === type);
   const color = hex(mark("textStyle")?.attrs?.color);
+  const font = fontName(mark("textStyle")?.attrs?.fontFamily) ?? undefined;
   const fill = hex(mark("highlight")?.attrs?.color);
   const href = mark("link")?.attrs?.href;
   const link = typeof href === "string" && href !== "" ? href : undefined;
@@ -474,6 +476,7 @@ function text(node: JSONContent): TextRun | ExternalHyperlink {
     underline: mark("underline") ? { type: UnderlineType.SINGLE } : undefined,
     strike: mark("strike") ? true : undefined,
     color,
+    font,
     shading: fill ? { type: ShadingType.CLEAR, fill, color: "auto" } : undefined,
     style: link ? "Hyperlink" : undefined,
   });

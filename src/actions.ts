@@ -141,9 +141,10 @@ export interface ActionDeps {
   ui: UiState;
   setUi(patch: Partial<UiState>): void;
   openPalette(): void;
-  /** Open the link field / the text color swatches; a command without its opener stays disabled. */
+  /** Open the link field / the text color swatches / the font list; a command without its opener stays disabled. */
   openLink?(): void;
   openColor?(): void;
+  openFont?(): void;
   /** Open the Find bar, with its replace field when `replace`; without it Find and Replace stay disabled. */
   openFind?(replace: boolean): void;
   /** Opens the header or footer just switched on for typing. */
@@ -153,7 +154,7 @@ export interface ActionDeps {
 
 /** The actions behind the commands that need more than the editor. Tasks 13 and 14 add theirs here. */
 export function buildActions(deps: ActionDeps): CommandHost["actions"] {
-  const { editor, session, openPalette, openLink, openColor, openFind, openZone, shell = tauriShell } = deps;
+  const { editor, session, openPalette, openLink, openColor, openFont, openFind, openZone, shell = tauriShell } = deps;
   return {
     newWindow: () => void shell.openInWindow(null).catch(shell.showError),
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
@@ -181,6 +182,7 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     },
     ...(openLink && { insertLink: openLink }),
     ...(openColor && { pickColor: openColor }),
+    ...(openFont && { pickFont: openFont }),
     ...(openFind && { find: () => openFind(false), replace: () => openFind(true) }),
   };
 }

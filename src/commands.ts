@@ -24,7 +24,7 @@ export interface Command {
 
 type ActionKey =
   | "newWindow" | "open" | "save" | "saveAs" | "print" | "find" | "replace" | "palette" | "insertImage"
-  | "insertLink" | "pickColor" | "addComment" | "toggleHeader" | "toggleFooter" | "togglePageNumbers";
+  | "insertLink" | "pickColor" | "pickFont" | "addComment" | "toggleHeader" | "toggleFooter" | "togglePageNumbers";
 
 export interface CommandHost {
   /** The editor the commands act on: the document's, or the header or footer being edited. */
@@ -45,7 +45,7 @@ export const COMMAND_IDS: string[] = [
   "table", "image", "link", "divider", "page_break", "comment", "header", "footer", "page_numbers",
   "column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "table_delete",
   "text", "h1", "h2", "h3", "quote", "ul", "ol",
-  "bold", "italic", "underline", "strike", "highlight", "color",
+  "bold", "italic", "underline", "strike", "highlight", "font", "color",
   "align_left", "align_center", "align_right", "align_justify",
 ];
 
@@ -126,6 +126,7 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("underline", "Format", "U", "Underline", "⌘U", edit((c) => c.toggleUnderline())),
     cmd("strike", "Format", "S", "Strikethrough", "⇧⌘X", edit((c) => c.toggleStrike())),
     cmd("highlight", "Format", "▮", "Highlight", "", edit((c) => c.toggleHighlight())),
+    cmd("font", "Format", "F", "Font…", "", actions.pickFont),
     cmd("color", "Format", "●", "Text color…", "", actions.pickColor),
     cmd("align_left", "Format", "⇤", "Align left", "", edit((c) => c.setTextAlign("left"))),
     cmd("align_center", "Format", "↔", "Align center", "", edit((c) => c.setTextAlign("center"))),

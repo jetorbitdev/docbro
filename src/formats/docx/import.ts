@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { PAPER, TWIPS_PER_PX, emptyMeta, type DocLook, type DocMeta, type KeptPart, type PageSize, type Spacing } from "../../doc/meta";
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
+import { fontName } from "../../editor/fonts";
 import { MEDIA_TYPES } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
@@ -58,6 +59,7 @@ interface Context {
   dropped: Set<DroppedPart>;
   page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
   textWidth: number; // px, the paper less its side margins: the widest a table is kept
+  font?: string | null; // the typeface most of the body is in (`DocLook.font`); a run in another one keeps it
   // Reading a header or footer for its view: a picture keeps the size the file drew it at (there is no text width to
   // hold it to), and a field is a field, not its last value.
   part?: boolean;
@@ -105,11 +107,12 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
     textWidth: textWidthPx(lastSection(body)),
   };
   ctx.spacing = spacingOf(ctx, null, null);
+  ctx.font = bodyFont(body, ctx, theme);
   ctx.headings = [1, 2, 3].map((level) => spacingOf(ctx, null, headingStyle(ctx, level)));
   const doc = finish(trimCovers(blocks(body, ctx)));
   const meta = await readHeaderFooter(zip, body, relations, ctx);
   meta.pageSize = pageSizeOf(lastSection(body));
-  meta.look = lookOf(body, ctx, theme);
+  meta.look = lookOf(body, ctx);
   return { doc, meta, dropped: DROPPED_ORDER.filter((part) => ctx.dropped.has(part)) };
 }
 
@@ -580,27 +583,41 @@ function runProp(ctx: Context, r: Element | null, styleId: string | null, path: 
   return found ?? first(ctx.defaults.rPr, path);
 }
 
-/**
- * How the file sets its text (doc/meta.ts `DocLook`). The page has one size and one typeface for the text, so they are
- * the ones most of the body's text (headings aside) is in, counted by the character.
- */
-function lookOf(body: Element, ctx: Context, theme: Document | null): DocLook {
-  const sizes = new Map<number, number>();
-  const fonts = new Map<string, number>();
-  const count = <K,>(map: Map<K, number>, key: K, n: number) => map.set(key, (map.get(key) ?? 0) + n);
+// Each run of the body's text outside the headings, with its paragraph's style and its length in characters.
+function eachRun(body: Element, ctx: Context, visit: (r: Element, styleId: string | null, chars: number) => void): void {
   for (const p of descendants(body, "w:p")) {
     const styleId = attr(first(first(p, "w:pPr"), "w:pStyle"), "w:val");
     if (kindOf(ctx, styleId).type === "heading") continue;
     for (const r of descendants(p, "w:r")) {
       const chars = descendants(r, "w:t").reduce((n, t) => n + (t.textContent ?? "").length, 0);
-      if (!chars) continue;
-      const size = int(attr(runProp(ctx, r, styleId, "w:sz"), "w:val"));
-      if (size) count(sizes, size, chars);
-      const font = typeface(runProp(ctx, r, styleId, "w:rFonts"), theme);
-      if (font) count(fonts, font, chars);
+      if (chars) visit(r, styleId, chars);
     }
   }
-  const most = <K,>(map: Map<K, number>): K | null => [...map].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+const count = <K,>(map: Map<K, number>, key: K, n: number) => map.set(key, (map.get(key) ?? 0) + n);
+const most = <K,>(map: Map<K, number>): K | null => [...map].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+// The typeface most of the body's text is in, counted by the character; the document's default when no run says.
+function bodyFont(body: Element, ctx: Context, theme: Document | null): string | null {
+  const fonts = new Map<string, number>();
+  eachRun(body, ctx, (r, styleId, chars) => {
+    const font = typeface(runProp(ctx, r, styleId, "w:rFonts"), theme);
+    if (font) count(fonts, font, chars);
+  });
+  return most(fonts) ?? typeface(runProp(ctx, null, null, "w:rFonts"), theme);
+}
+
+/**
+ * How the file sets its text (doc/meta.ts `DocLook`). The page has one size and one typeface for the text, so they are
+ * the ones most of the body's text (headings aside) is in, counted by the character.
+ */
+function lookOf(body: Element, ctx: Context): DocLook {
+  const sizes = new Map<number, number>();
+  eachRun(body, ctx, (r, styleId, chars) => {
+    const size = int(attr(runProp(ctx, r, styleId, "w:sz"), "w:val"));
+    if (size) count(sizes, size, chars);
+  });
   const size = most(sizes) ?? int(attr(runProp(ctx, null, null, "w:sz"), "w:val")) ?? 20;
 
   const headingSize = (level: number) => {
@@ -614,7 +631,7 @@ function lookOf(body: Element, ctx: Context, theme: Document | null): DocLook {
   const pgMar = first(lastSection(body), "w:pgMar");
   const margin = (side: string, fallback: number) => Math.max(0, twips(attr(pgMar, side)) ?? fallback);
   return {
-    font: most(fonts) ?? typeface(runProp(ctx, null, null, "w:rFonts"), theme),
+    font: ctx.font ?? null,
     size,
     spacing: ctx.spacing,
     headings: [1, 2, 3].map((level) => ({ size: headingSize(level), spacing: ctx.headings[level - 1] })),
@@ -843,7 +860,7 @@ const UNWRAP = ["w:ins", "w:moveTo", "w:smartTag", "w:customXml", "w:fldSimple",
 // bookmarks, comment anchors and proofing marks have nothing to keep.
 function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: JSONContent[]): void {
   for (const el of children(parent)) {
-    if (is(el, "w:r")) run(el, ctx, runMarks(first(el, "w:rPr"), link, ctx.filled), out);
+    if (is(el, "w:r")) run(el, ctx, runMarks(first(el, "w:rPr"), link, ctx.filled, ctx.part ? undefined : ctx.font), out);
     else if (is(el, "w:hyperlink")) {
       const href = ctx.links.get(attr(el, "r:id") ?? "");
       inlines(el, ctx, href ? { type: "link", attrs: { href } } : link, out);
@@ -898,7 +915,8 @@ const hex = (value: string | null) => (value && /^[0-9a-f]{6}$/i.test(value) ? `
 
 // Only direct formatting becomes marks: a style's look (heading size, the
 // Hyperlink style's blue underline) belongs to the block or the link.
-function runMarks(rPr: Element | null, link: Mark | null, filled = false): Mark[] {
+// A run's own typeface is kept when it is not the one the page is set in (`body`); `body` is left out where fonts are not read.
+function runMarks(rPr: Element | null, link: Mark | null, filled = false, body?: string | null): Mark[] {
   const marks: Mark[] = [];
   if (toggle(first(rPr, "w:b"))) marks.push({ type: "bold" });
   if (toggle(first(rPr, "w:i"))) marks.push({ type: "italic" });
@@ -907,7 +925,11 @@ function runMarks(rPr: Element | null, link: Mark | null, filled = false): Mark[
   if (toggle(first(rPr, "w:strike")) || toggle(first(rPr, "w:dstrike"))) marks.push({ type: "strike" });
   // The source's own default text color (Word and Google Docs stamp one on every run) would vanish on the other theme; a choice is kept.
   const color = hex(attr(first(rPr, "w:color"), "w:val"));
-  if (color && (filled || !isAutomaticColor(color))) marks.push({ type: "textStyle", attrs: { color } });
+  const rFonts = first(rPr, "w:rFonts");
+  const named = body === undefined ? null : fontName(attr(rFonts, "w:ascii") ?? attr(rFonts, "w:hAnsi"));
+  const fontFamily = named && named.toLowerCase() !== body?.toLowerCase() ? named : null;
+  const style = { ...(color && (filled || !isAutomaticColor(color)) && { color }), ...(fontFamily && { fontFamily }) };
+  if (Object.keys(style).length) marks.push({ type: "textStyle", attrs: style });
   const highlight = lookup(HIGHLIGHT, attr(first(rPr, "w:highlight"), "w:val")) ?? hex(attr(first(rPr, "w:shd"), "w:fill"));
   if (highlight) marks.push({ type: "highlight", attrs: { color: highlight } });
   if (link) marks.push(link);

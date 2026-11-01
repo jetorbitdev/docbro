@@ -17,7 +17,7 @@ test("a_shaded_cell_keeps_its_fill_and_its_white_text_while_white_or_auto_shadin
   const table = await readTable(tableXml([cellXml("3C78D8", WHITE_RUN), cellXml("ffffff"), cellXml("auto")]));
   const cells = table.content![0].content!;
   expect(cells.map((c) => c.attrs!.background ?? null)).toEqual(["#3c78d8", null, null]);
-  expect(cells[0].content![0].content![0].marks).toEqual(expect.arrayContaining([{ type: "bold" }, { type: "textStyle", attrs: { color: "#ffffff" } }]));
+  expect(cells[0].content![0].content![0].marks).toEqual(expect.arrayContaining([{ type: "bold" }, { type: "textStyle", attrs: { color: "#ffffff", fontFamily: null } }]));
 });
 
 test("white_text_outside_a_shaded_cell_is_still_the_sources_default_and_dropped", async () => {

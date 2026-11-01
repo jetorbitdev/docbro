@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
-import { applyColor, applyLink, popoverPosition, TEXT_COLORS } from "./blocks";
+import { FONTS, fontName, fontStack } from "../editor/fonts";
+import { applyColor, applyFont, applyLink, popoverPosition, TEXT_COLORS } from "./blocks";
 
 const WIDTH = 280;
 
@@ -165,6 +166,73 @@ export function ColorPopover({ editor, paper, onClose }: Props) {
           <span className="hint">Remove the color</span>
         </span>
       </button>
+    </div>
+  );
+}
+
+/**
+ * Format ▸ Font: the typefaces, each drawn in itself, and Default. The one the selection is in is ticked, and a face
+ * from a file that is not among them is listed first. Arrows move, Enter or a click applies, Esc closes.
+ */
+export function FontPopover({ editor, paper, onClose }: Props) {
+  const at = useAnchor(editor, paper);
+  const box = useRef<HTMLDivElement>(null);
+  const [options] = useState(() => {
+    const current = fontName(editor.getAttributes("textStyle").fontFamily);
+    const known = FONTS.some((f) => f.name.toLowerCase() === current?.toLowerCase());
+    const names = [...(current && !known ? [current] : []), ...FONTS.map((f) => f.name)];
+    return { current, list: [...names, null] as (string | null)[] };
+  });
+  const { current, list } = options;
+  const [index, setIndex] = useState(() => {
+    const found = list.findIndex((name) => name !== null && name.toLowerCase() === current?.toLowerCase());
+    return found < 0 ? list.length - 1 : found;
+  });
+
+  useDismiss(box, () => box.current?.focus(), onClose);
+
+  const choose = (i: number) => {
+    applyFont(editor, list[i]);
+    onClose();
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    const n = list.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") setIndex((i) => (i + 1) % n);
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") setIndex((i) => (i - 1 + n) % n);
+    else if (e.key === "Enter") choose(index);
+    else if (e.key === "Escape") {
+      editor.commands.focus();
+      onClose();
+    } else return;
+    e.preventDefault();
+  };
+
+  return (
+    <div
+      ref={box}
+      className="pop no-print"
+      role="dialog"
+      aria-label="Font"
+      tabIndex={-1}
+      style={place(at)}
+      onKeyDown={onKeyDown}
+      // the rows are buttons; a mouse-down on them would take the selection from the editor
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="caption">Font</div>
+      {list.map((name, i) => (
+        <button
+          key={name ?? "default"}
+          className={`font-item${i === index ? " sel" : ""}`}
+          style={name ? { fontFamily: fontStack(name) } : undefined}
+          aria-current={name !== null && name.toLowerCase() === current?.toLowerCase() ? "true" : undefined}
+          onClick={() => choose(i)}
+          onMouseEnter={() => setIndex(i)}
+        >
+          <span>{name ?? "Default"}</span>
+          {name !== null && name.toLowerCase() === current?.toLowerCase() && <span className="tick">✓</span>}
+        </button>
+      ))}
     </div>
   );
 }

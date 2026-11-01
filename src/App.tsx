@@ -22,7 +22,7 @@ import { crumbs } from "./layout/outline";
 import { sheetAt, type PageLayout } from "./layout/pages";
 import { McpSettings } from "./layout/McpSettings";
 import { Paper } from "./layout/Paper";
-import { ColorPopover, LinkPopover } from "./layout/Popovers";
+import { ColorPopover, FontPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
 import { SlashMenu } from "./layout/SlashMenu";
 import { TopBar } from "./layout/TopBar";
@@ -90,7 +90,7 @@ export default function App() {
   const [zoneEditor, setZoneEditor] = useState<Editor | null>(null);
   const target = zoneEditor ?? editor;
   const pageConfig = useRef({ ratio: PAPER.letter.height / PAPER.letter.width, zoom: 1 });
-  const [popover, setPopover] = useState<"link" | "color" | null>(null);
+  const [popover, setPopover] = useState<"link" | "color" | "font" | null>(null);
   const [findRequest, setFindRequest] = useState<FindRequest | null>(null);
   const findCount = useRef(0);
 
@@ -98,6 +98,7 @@ export default function App() {
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const openLink = useCallback(() => setPopover("link"), []);
   const openColor = useCallback(() => setPopover("color"), []);
+  const openFont = useCallback(() => setPopover("font"), []);
   const closePopover = useCallback(() => setPopover(null), []);
   // A double-click in a sheet's margin: edit its header or footer (adding one if there is none), once the person
   // agrees to what that loses of one kept from the file.
@@ -241,8 +242,8 @@ export default function App() {
   }, [editor, paper, pageRatio, pageZoom, ui.sansFont]);
 
   const actions = useMemo(
-    () => (session ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFind, openZone }) : {}),
-    [target, session, ui, setUi, openPalette, openLink, openColor, openFind, openZone],
+    () => (session ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone }) : {}),
+    [target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone],
   );
   const commands: Command[] = session ? buildCommands({ editor: target, zoneEditing: !!zoneEditor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
@@ -358,6 +359,7 @@ export default function App() {
                 <SlashMenu editor={editor} paper={paper} suspended={paletteOpen || settingsOpen} />
                 {popover === "link" && <LinkPopover editor={target} paper={paper} onClose={closePopover} />}
                 {popover === "color" && <ColorPopover editor={target} paper={paper} onClose={closePopover} />}
+                {popover === "font" && <FontPopover editor={target} paper={paper} onClose={closePopover} />}
               </Paper>
               {/* the comment cards (Task 13) go in .comments-inner, which keeps its width while the rail opens */}
               <div

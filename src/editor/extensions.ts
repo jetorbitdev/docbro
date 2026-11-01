@@ -4,13 +4,14 @@ import { Image } from "@tiptap/extension-image";
 import { Strike } from "@tiptap/extension-strike";
 import { Table, TableCell, TableHeader, TableRow, TableView } from "@tiptap/extension-table";
 import { TextAlign } from "@tiptap/extension-text-align";
-import { Color, TextStyle } from "@tiptap/extension-text-style";
+import { Color, FontFamily, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import type { Spacing } from "../doc/meta";
 import { spacingStyle } from "../layout/look";
 import { inkOn, isAutomaticColor } from "./automaticColor";
 import { Field } from "./field";
+import { firstFamily, fontName, fontStack } from "./fonts";
 import { PageBreak } from "./pageBreak";
 
 // Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
@@ -33,6 +34,26 @@ const PastedColor = Color.extend({
         },
       };
     });
+  },
+});
+
+// A typeface is kept by its name (what a .docx stores) and drawn with a stack that has a fallback behind it. The name is the
+// first face of a pasted `font-family`; a system or generic one is not a choice, so it leaves the text in the page's own.
+const Typeface = FontFamily.extend({
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontFamily: {
+          default: null,
+          parseHTML: (element: HTMLElement) => firstFamily(element.style.fontFamily),
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const name = fontName(attributes.fontFamily);
+            return name ? { style: `font-family: ${fontStack(name)}` } : {};
+          },
+        },
+      },
+    }];
   },
 });
 
@@ -167,6 +188,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     ParagraphSpacing,
     TextStyle,
     PastedColor,
+    Typeface,
     Highlight.configure({ multicolor: true }),
     IndentedTable.configure({ resizable: true, View: IndentedTableView }),
     TableRow,

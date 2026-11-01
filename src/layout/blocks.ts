@@ -306,6 +306,12 @@ export const TEXT_COLORS: { name: string; value: string }[] = [
   { name: "Pink", value: "#c65385" },
 ];
 
+/** A typeface for the selection (or for what is typed next, at a caret), or null for the page's own. */
+export function applyFont(editor: Editor, name: string | null): void {
+  const chain = editor.chain().focus();
+  void (name ? chain.setFontFamily(name) : chain.unsetFontFamily()).run();
+}
+
 /** A text color for the selection, or null for the default. */
 export function applyColor(editor: Editor, value: string | null): void {
   const chain = editor.chain().focus();

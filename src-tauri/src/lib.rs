@@ -407,6 +407,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&item("underline", "Underline", "CmdOrCtrl+U")?)
         .item(&item("strike", "Strikethrough", "CmdOrCtrl+Shift+X")?)
         .item(&MenuItemBuilder::with_id("highlight", "Highlight").build(app)?)
+        .item(&MenuItemBuilder::with_id("font", "Font…").build(app)?)
         .item(&MenuItemBuilder::with_id("color", "Text color…").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("align_left", "Align left").build(app)?)

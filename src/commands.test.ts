@@ -97,7 +97,7 @@ test("a_command_without_its_action_is_disabled", () => {
     .map((c) => c.id);
   // the commands later tasks or the window supply; everything else runs on the editor or the view
   expect(disabled.sort()).toEqual(
-    ["new", "open", "save", "save_as", "print", "find", "replace", "palette", "image", "link", "color", "comment", "header", "footer", "page_numbers"].sort(),
+    ["new", "open", "save", "save_as", "print", "find", "replace", "palette", "image", "link", "font", "color", "comment", "header", "footer", "page_numbers"].sort(),
   );
 });
 
