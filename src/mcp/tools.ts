@@ -12,7 +12,7 @@ import { normalizeUrl } from "../layout/blocks";
 import { docStats, outlineOf } from "../layout/outline";
 
 /**
- * The document tools that AI clients call over MCP (and, later, DocBro's own assistant). Rust
+ * The document tools that AI clients call over MCP, and DocBro's own assistant. Rust
  * forwards each call to the window, which runs it here against the live editor.
  *
  * Blocks are the document's top-level nodes, numbered from 1 (see `blockAddress.ts`). Each edit
@@ -155,7 +155,7 @@ function parseBlocks(editor: Editor, markdown: string): Fragment {
 }
 
 /** Applies `tr` as one undo step of its own, closed off from the change before it and from the one after. */
-function commit(editor: Editor, tr: Transaction): void {
+export function commit(editor: Editor, tr: Transaction): void {
   editor.view.dispatch(closeHistory(tr).setMeta("addToHistory", true));
   // Without this, typing that starts next to the new text within the history's group delay would join the AI's step.
   editor.view.dispatch(closeHistory(editor.state.tr));

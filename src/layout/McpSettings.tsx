@@ -1,7 +1,8 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { api, type McpStatus } from "../api";
+import { api, type AssistantStatus, type McpStatus, type ServerConfig, type ServerView } from "../api";
+import { ServerForm } from "./ServerForm";
 import "./assistant.css";
 
 interface Client {
@@ -75,17 +76,22 @@ const message = (e: unknown) => (e instanceof Error && e.message) || String(e);
 interface Props {
   /** Closes the sheet and gives the editor its focus back. */
   onClose(): void;
+  /** opens on the form that adds a server */
+  addServer?: boolean;
 }
 
 /**
- * MCP settings: a sheet over the window with the command palette's chrome (mock 332–334).
- * Here it has one section, Serve DocBro, the server external AI clients connect to; Task 17
- * adds the model and the user's servers above it.
+ * MCP settings: a sheet over the window with the command palette's chrome (mock 332–334). The
+ * Assistant's model and the user's servers come first, then Serve DocBro, the server external
+ * AI clients connect to. Adding or editing a server takes the whole sheet.
  */
-export function McpSettings({ onClose }: Props) {
+export function McpSettings({ onClose, addServer = false }: Props) {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [servers, setServers] = useState<ServerView[]>([]);
+  // the server form, and the server it edits (null adds one)
+  const [form, setForm] = useState<{ editing: ServerView | null } | null>(addServer ? { editing: null } : null);
   const [port, setPort] = useState("");
   const [clientId, setClientId] = useState(CLIENTS[0].id);
   const [busy, setBusy] = useState(false);
@@ -98,6 +104,7 @@ export function McpSettings({ onClose }: Props) {
       setStatus(s);
       setPort(String(s.port));
     }, (e) => setError(message(e)));
+    api.serversList().then(setServers, () => {});
   }, []);
 
   useEffect(() => {
@@ -137,10 +144,17 @@ export function McpSettings({ onClose }: Props) {
     if (yes) await change(api.mcpRegenerateToken());
   };
 
+  const closeForm = () => {
+    setForm(null);
+    sheet.current?.focus();
+  };
+
+  // Esc leaves the server form first, then the sheet
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
     e.preventDefault();
-    onClose();
+    if (form) closeForm();
+    else onClose();
   };
 
   const on = status?.running ?? false;
@@ -170,94 +184,280 @@ export function McpSettings({ onClose }: Props) {
           </button>
         </div>
         <div className="mcp-sheet-body">
-          <section className="mcp-section">
-            <div className="mcp-row">
-              <button
-                className="mcp-row-toggle"
-                aria-expanded={open}
-                aria-controls="serve-docbro"
-                onClick={() => setOpen((o) => !o)}
-              >
-                <span className="chevron">{open ? "▾" : "▸"}</span>
-                <span className="mcp-row-text">
-                  <span className="name">Serve DocBro</span>
-                  <span className={`sub${on ? " on" : ""}`}>{on ? `On · 127.0.0.1:${status?.port}` : "Off"}</span>
-                </span>
-              </button>
-              <button
-                className={`switch${on ? " on" : ""}`}
-                role="switch"
-                aria-checked={on}
-                aria-label="Serve DocBro"
-                disabled={!status || busy || (!on && !portOk(port))}
-                onClick={() => change(on ? api.mcpSetEnabled(false) : api.mcpSetEnabled(true, Number(port)))}
-              >
-                <span />
-              </button>
-            </div>
-            {problem && <div className="mcp-error" role="alert">{problem}</div>}
-            {open && status && (
-              <div className="mcp-details" id="serve-docbro">
-                <p className="mcp-lead">
-                  Lets AI tools like Claude, Cursor or Codex read and edit the document you have open. It listens on
-                  this computer only, and every change they make can be undone.
-                </p>
-                <label className="mcp-field">
-                  <span className="label">Port</span>
-                  <input
-                    value={port}
-                    inputMode="numeric"
-                    spellCheck={false}
-                    disabled={on || busy}
-                    aria-invalid={!portOk(port)}
-                    onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  />
-                  <span className="hint">
-                    {on ? "Switch off to change it." : portOk(port) ? "" : "Choose a port between 1024 and 65535."}
-                  </span>
-                </label>
-                <div className="mcp-field">
-                  <span className="label">Token</span>
-                  <input className="code" value={status.token} readOnly aria-label="Access token" />
-                  <button className="line-btn" onClick={() => copy("token", status.token)}>
-                    {copied === "token" ? "Copied" : "Copy"}
+          {form ? (
+            <ServerForm
+              editing={form.editing}
+              taken={servers.map((s) => s.id)}
+              onSaved={(views) => {
+                setServers(views);
+                closeForm();
+              }}
+              onCancel={closeForm}
+            />
+          ) : (
+            <>
+              <ModelSection />
+              <ServersSection servers={servers} onChange={setServers} onEdit={(editing) => setForm({ editing })} />
+              <section className="mcp-section">
+                <div className="mcp-row">
+                  <button
+                    className="mcp-row-toggle"
+                    aria-expanded={open}
+                    aria-controls="serve-docbro"
+                    onClick={() => setOpen((o) => !o)}
+                  >
+                    <span className="chevron">{open ? "▾" : "▸"}</span>
+                    <span className="mcp-row-text">
+                      <span className="name">Serve DocBro</span>
+                      <span className={`sub${on ? " on" : ""}`}>{on ? `On · 127.0.0.1:${status?.port}` : "Off"}</span>
+                    </span>
                   </button>
-                  <button className="line-btn" disabled={busy} onClick={regenerate}>
-                    Regenerate
+                  <button
+                    className={`switch${on ? " on" : ""}`}
+                    role="switch"
+                    aria-checked={on}
+                    aria-label="Serve DocBro"
+                    disabled={!status || busy || (!on && !portOk(port))}
+                    onClick={() => change(on ? api.mcpSetEnabled(false) : api.mcpSetEnabled(true, Number(port)))}
+                  >
+                    <span />
                   </button>
                 </div>
-                <div className="mcp-clients" role="tablist" aria-label="AI tool">
-                  {CLIENTS.map((c) => (
-                    <button
-                      key={c.id}
-                      role="tab"
-                      aria-selected={c.id === client.id}
-                      className={`pal-tab${c.id === client.id ? " on" : ""}`}
-                      onClick={() => setClientId(c.id)}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-                <div className="mcp-where">
-                  <span>{client.where}</span>
-                  <button className="line-btn" onClick={() => copy("snippet", client.snippet(status))}>
-                    {copied === "snippet" ? "Copied" : "Copy"}
-                  </button>
-                </div>
-                <pre className="mcp-snippet">
-                  <code>{client.snippet(status)}</code>
-                </pre>
-                <p className="mcp-note">
-                  {on
-                    ? "These settings contain a private access token. Don't share them."
-                    : "Switch Serve DocBro on before you connect a tool."}
-                </p>
-              </div>
-            )}
-          </section>
+                {problem && <div className="mcp-error" role="alert">{problem}</div>}
+                {open && status && (
+                  <div className="mcp-details" id="serve-docbro">
+                    <p className="mcp-lead">
+                      Lets AI tools like Claude, Cursor or Codex read and edit the document you have open. It listens on
+                      this computer only, and every change they make can be undone.
+                    </p>
+                    <label className="mcp-field">
+                      <span className="label">Port</span>
+                      <input
+                        value={port}
+                        inputMode="numeric"
+                        spellCheck={false}
+                        disabled={on || busy}
+                        aria-invalid={!portOk(port)}
+                        onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                      />
+                      <span className="hint">
+                        {on ? "Switch off to change it." : portOk(port) ? "" : "Choose a port between 1024 and 65535."}
+                      </span>
+                    </label>
+                    <div className="mcp-field">
+                      <span className="label">Token</span>
+                      <input className="code" value={status.token} readOnly aria-label="Access token" />
+                      <button className="line-btn" onClick={() => copy("token", status.token)}>
+                        {copied === "token" ? "Copied" : "Copy"}
+                      </button>
+                      <button className="line-btn" disabled={busy} onClick={regenerate}>
+                        Regenerate
+                      </button>
+                    </div>
+                    <div className="mcp-clients" role="tablist" aria-label="AI tool">
+                      {CLIENTS.map((c) => (
+                        <button
+                          key={c.id}
+                          role="tab"
+                          aria-selected={c.id === client.id}
+                          className={`pal-tab${c.id === client.id ? " on" : ""}`}
+                          onClick={() => setClientId(c.id)}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mcp-where">
+                      <span>{client.where}</span>
+                      <button className="line-btn" onClick={() => copy("snippet", client.snippet(status))}>
+                        {copied === "snippet" ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <pre className="mcp-snippet">
+                      <code>{client.snippet(status)}</code>
+                    </pre>
+                    <p className="mcp-note">
+                      {on
+                        ? "These settings contain a private access token. Don't share them."
+                        : "Switch Serve DocBro on before you connect a tool."}
+                    </p>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
+/** The Anthropic API key, which the webview only ever knows by its last four characters, and the model. */
+function ModelSection() {
+  const [status, setStatus] = useState<AssistantStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.assistantStatus().then((s) => {
+      setStatus(s);
+      setModel(s.model);
+    }, (e) => setError(message(e)));
+  }, []);
+
+  const change = async (p: Promise<AssistantStatus>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const s = await p;
+      setStatus(s);
+      setModel(s.model);
+      setKey("");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saved = status?.configured ? (status.key_hint ? `•••• ${status.key_hint}` : "Saved") : "";
+  const changed = key.trim() !== "" || (status !== null && model.trim() !== status.model);
+
+  return (
+    <section className="mcp-section">
+      <h3 className="mcp-heading">Model</h3>
+      <p className="mcp-lead">
+        The Assistant chats with Claude over the Anthropic API, with your own API key. The key stays on this computer.
+      </p>
+      <div className="mcp-field wide">
+        <span className="label">API key</span>
+        <input
+          type="password"
+          aria-label="API key"
+          value={key}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={status?.configured ? "Paste a new key to replace it" : "sk-ant-…"}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        {saved && <span className="hint">{saved}</span>}
+      </div>
+      <label className="mcp-field wide">
+        <span className="label">Model</span>
+        <input aria-label="Model" className="code" value={model} spellCheck={false} onChange={(e) => setModel(e.target.value)} />
+      </label>
+      {error && <div className="mcp-error" role="alert">{error}</div>}
+      <div className="server-actions">
+        <div className="spacer" />
+        <button className="line-btn" disabled={!status?.configured || busy} onClick={() => change(api.assistantClearKey())}>
+          Remove key
+        </button>
+        <button
+          className="line-btn primary"
+          disabled={!status || !changed || !model.trim() || busy}
+          onClick={() => change(api.assistantSave(key.trim() || null, model.trim()))}
+        >
+          Save
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** A saved server as a config for `servers_test`: its secrets as empty values, which Rust fills from the saved ones. */
+function savedConfig(v: ServerView): ServerConfig {
+  const secrets = Object.fromEntries(v.secret_keys.map((k) => [k, ""]));
+  const spec: ServerConfig["spec"] =
+    v.transport === "http"
+      ? { transport: "http", url: v.url ?? "", headers: secrets }
+      : { transport: "stdio", command: v.command ?? "", args: v.args, env: secrets };
+  return { id: v.id, name: v.name, enabled: v.enabled, spec };
+}
+
+interface ServersProps {
+  servers: ServerView[];
+  onChange(views: ServerView[]): void;
+  onEdit(server: ServerView | null): void;
+}
+
+/** The user's MCP servers. Error text comes from the server: it is shown as text, never as markup. */
+function ServersSection({ servers, onChange, onEdit }: ServersProps) {
+  const [tests, setTests] = useState<Record<string, { ok: boolean; text: string } | "running">>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const test = async (v: ServerView) => {
+    setTests((t) => ({ ...t, [v.id]: "running" }));
+    let result: { ok: boolean; text: string };
+    try {
+      const tools = await api.serversTest(savedConfig(v));
+      result = { ok: true, text: tools.length ? `Tools: ${tools.join(", ")}` : "Connected. It has no tools." };
+    } catch (e) {
+      result = { ok: false, text: message(e) };
+    }
+    setTests((t) => ({ ...t, [v.id]: result }));
+  };
+
+  const remove = async (v: ServerView) => {
+    const yes = await ask("The Assistant can no longer use its tools.", {
+      title: `Remove ${v.name}?`,
+      kind: "warning",
+      okLabel: "Remove",
+      cancelLabel: "Cancel",
+    });
+    if (!yes) return;
+    setError(null);
+    api.serversRemove(v.id).then(onChange, (e) => setError(message(e)));
+  };
+
+  return (
+    <section className="mcp-section">
+      <h3 className="mcp-heading">Servers</h3>
+      <p className="mcp-lead">
+        MCP servers the Assistant can use. One only runs while it is switched on in the Assistant panel.
+      </p>
+      <div className="server-list">
+        {servers.map((v) => {
+          const result = tests[v.id];
+          return (
+            <div className="server-item" key={v.id}>
+              <div className="mcp-row">
+                <span className={`dot ${v.status}`} title={STATUS[v.status]} />
+                <span className="mcp-row-text">
+                  <span className="name">{v.name}</span>
+                  <span className="sub">
+                    {STATUS[v.status]}
+                    {v.tools ? ` · ${v.tools} tools` : ""} · {v.summary}
+                  </span>
+                </span>
+                <button className="line-btn" onClick={() => onEdit(v)}>
+                  Edit
+                </button>
+                <button
+                  className="line-btn"
+                  disabled={!v.enabled || result === "running"}
+                  title={v.enabled ? undefined : "Switch it on in the Assistant panel to test it."}
+                  onClick={() => test(v)}
+                >
+                  {result === "running" ? "Testing…" : "Test"}
+                </button>
+                <button className="line-btn" onClick={() => remove(v)}>
+                  Remove
+                </button>
+              </div>
+              {v.error && <div className="mcp-error">{v.error}</div>}
+              {result && result !== "running" && <div className={result.ok ? "server-tested" : "mcp-error"}>{result.text}</div>}
+            </div>
+          );
+        })}
+        {error && <div className="mcp-error" role="alert">{error}</div>}
+        <button className="add-btn" onClick={() => onEdit(null)}>
+          + Add MCP server
+        </button>
+      </div>
+    </section>
+  );
+}
+
+const STATUS: Record<ServerView["status"], string> = { off: "Off", ready: "On", error: "Not working" };

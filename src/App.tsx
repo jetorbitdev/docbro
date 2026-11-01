@@ -79,6 +79,8 @@ export default function App() {
   const [resizing, setResizing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // MCP settings opened from "+ Add MCP server" start on the form that adds one
+  const [addServer, setAddServer] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
@@ -146,7 +148,10 @@ export default function App() {
     setPaletteOpen(false);
     editor.commands.focus();
   }, [editor]);
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openSettings = useCallback((add = false) => {
+    setAddServer(add);
+    setSettingsOpen(true);
+  }, []);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     editor.commands.focus();
@@ -374,12 +379,12 @@ export default function App() {
           aria-hidden={layout.assistantOpen ? undefined : true}
         >
           <div className="assistant-inner">
-            <AssistantPanel onClose={() => run("assistant")} onSettings={openSettings} />
+            <AssistantPanel editor={editor} settingsOpen={settingsOpen} onClose={() => run("assistant")} onSettings={openSettings} />
           </div>
         </aside>
       </div>
       {paletteOpen && <CommandPalette commands={commands} onClose={closePalette} />}
-      {settingsOpen && <McpSettings onClose={closeSettings} />}
+      {settingsOpen && <McpSettings onClose={closeSettings} addServer={addServer} />}
     </div>
   );
 }
