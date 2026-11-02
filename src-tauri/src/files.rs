@@ -37,6 +37,7 @@ fn create_temp(path: &Path, name: &str, private: bool) -> io::Result<(File, Path
 /// Writes `data` to `path` so a crash or a full disk never leaves half a file behind: the
 /// bytes go to a hidden file in the same folder first, which then replaces `path` in one step.
 /// Writes to one path may overlap: the last rename wins and the file is always one complete payload.
+/// A link stays a link: the file it points at is the one replaced, and it keeps its permissions.
 pub fn write_atomic(path: &Path, data: &[u8]) -> CmdResult<()> {
     write_replacing(path, data, false)
 }
@@ -48,12 +49,32 @@ pub fn write_private(path: &Path, data: &[u8]) -> CmdResult<()> {
 }
 
 fn write_replacing(path: &Path, data: &[u8], private: bool) -> CmdResult<()> {
+    let failed = |e: io::Error| format!("Cannot write {}: {e}", path.display());
+    // renaming over a link would put a file in its place
+    let resolved;
+    let path = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            resolved = fs::canonicalize(path).map_err(failed)?;
+            resolved.as_path()
+        }
+        _ => path,
+    };
     let name = path
         .file_name()
         .ok_or_else(|| format!("Cannot write {}: it has no file name", path.display()))?;
-    let failed = |e: io::Error| format!("Cannot write {}: {e}", path.display());
+    // the file being replaced keeps its permissions (a private file is always the user's only)
+    #[cfg(unix)]
+    let mode = (!private)
+        .then(|| fs::metadata(path).ok())
+        .flatten()
+        .map(|meta| std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o7777);
     let (mut file, temp) = create_temp(path, &name.to_string_lossy(), private).map_err(failed)?;
     let written = (|| -> io::Result<()> {
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(mode))?;
+        }
         file.write_all(data)?;
         file.sync_all()?;
         // Windows cannot rename a file that is still open
@@ -201,6 +222,43 @@ mod tests {
                 fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
             assert_eq!(names, vec![std::ffi::OsString::from("a.docx")], "round {round}");
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_through_a_link_keeps_the_link_and_replaces_the_file_it_points_at() {
+        let dir = tmp("link");
+        fs::create_dir(dir.join("real")).unwrap();
+        let target = dir.join("real").join("a.docx");
+        fs::write(&target, b"one").unwrap();
+        let link = dir.join("a.docx");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        write_atomic(&link, b"two").unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read(&target).unwrap(), b"two");
+        // the temp file went next to the real file, and is gone
+        assert_eq!(fs::read_dir(dir.join("real")).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_keeps_the_files_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmp("mode");
+        let p = dir.join("a.md");
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        fs::write(&p, b"one").unwrap();
+        for m in [0o640, 0o604, 0o755] {
+            fs::set_permissions(&p, fs::Permissions::from_mode(m)).unwrap();
+            write_atomic(&p, b"two").unwrap();
+            assert_eq!(mode(&p), m, "{m:o}");
+        }
+        // a private file stays private whatever the file had
+        write_private(&p, b"three").unwrap();
+        assert_eq!(mode(&p), 0o600);
         fs::remove_dir_all(&dir).unwrap();
     }
 
