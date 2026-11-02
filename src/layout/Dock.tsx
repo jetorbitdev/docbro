@@ -11,7 +11,7 @@ const BLOCKS: [BlockKey, string, string][] = [
 ];
 
 /**
- * Mock 209–228: the block type, B/I/U/highlight, Table, undo and redo, lit from the caret. It floats at the middle
+ * Mock 209–228: the block type, B/I/U/text color/highlight, Table, undo and redo, lit from the caret. It floats at the middle
  * of the page: `commentsOpen` says whether the comments rail is taking room beside the page.
  */
 export function Dock({ editor, run, commentsOpen }: { editor: Editor; run(commandId: string): void; commentsOpen: boolean }) {
@@ -22,6 +22,7 @@ export function Dock({ editor, run, commentsOpen }: { editor: Editor; run(comman
       bold: editor.isActive("bold"),
       italic: editor.isActive("italic"),
       underline: editor.isActive("underline"),
+      color: editor.getAttributes("textStyle").color as string | undefined,
     }),
   });
 
@@ -47,6 +48,11 @@ export function Dock({ editor, run, commentsOpen }: { editor: Editor; run(comman
             </button>
             <button className={`tool underline${s.underline ? " on" : ""}`} title="Underline" aria-pressed={s.underline} onClick={() => run("underline")}>
               U
+            </button>
+            <button className="tool" title="Text color" aria-label="Text color" onClick={() => run("color")}>
+              <span className="swatch-tc" style={{ borderBottomColor: s.color }}>
+                A
+              </span>
             </button>
             <button className="tool" title="Highlight" aria-label="Highlight" onClick={() => run("highlight")}>
               <span className="swatch-hl ringed" />

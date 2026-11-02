@@ -317,6 +317,8 @@ button,textarea{font-family:inherit}
 .bubble .sep{width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px}
 .swatch-hl{width:14px;height:14px;border-radius:3px;background:#f3dc6b}
 .swatch-hl.ringed{border:1px solid var(--hl-line)}
+/* text color: an A over a bar in the selection's color, the ink's own where it has none */
+.swatch-tc{font-size:13px;font-weight:600;line-height:13px;padding:0 2px 1px;border-bottom:3px solid currentColor}
 
 /* slash menu (171–181), and the link and color popovers made like it */
 .slash,.pop{position:absolute;background:var(--surface);border:1px solid var(--line2);border-radius:12px;box-shadow:0 16px 40px -16px rgba(0,0,0,.3);padding:6px;z-index:6;display:flex;flex-direction:column;gap:1px}

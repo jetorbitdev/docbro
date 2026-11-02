@@ -31,7 +31,7 @@ function selectionRect(editor: Editor): Rect {
   return { left, top: a.top, width: Math.max(a.right, b.right) - left, height: b.bottom - a.top };
 }
 
-/** Mock 157–169: B, I, U, H2, quote, highlight and Comment over a non-empty text selection. */
+/** Mock 157–169: B, I, U, H2, quote, text color, highlight and Comment over a non-empty text selection. */
 export function SelectionBubble({ editor, paper, scroller, suspended, run, onComment }: Props) {
   const s = useEditorState({
     editor,
@@ -45,6 +45,7 @@ export function SelectionBubble({ editor, paper, scroller, suspended, run, onCom
         bold: editor.isActive("bold"),
         italic: editor.isActive("italic"),
         underline: editor.isActive("underline"),
+        color: editor.getAttributes("textStyle").color as string | undefined,
       };
     },
   });
@@ -114,6 +115,11 @@ export function SelectionBubble({ editor, paper, scroller, suspended, run, onCom
       </button>
       <button className="wide quote" title="Quote" onClick={() => applyBlock(editor, "blockquote")}>
         “
+      </button>
+      <button title="Text color" aria-label="Text color" onClick={() => run("color")}>
+        <span className="swatch-tc" style={{ borderBottomColor: s.color }}>
+          A
+        </span>
       </button>
       <button title="Highlight" aria-label="Highlight" onClick={() => run("highlight")}>
         <span className="swatch-hl" />
