@@ -298,6 +298,21 @@ test("a_composing_enter_does_not_step", async () => {
   expect(count()).toBe("1 of 3");
 });
 
+// WKWebView ends a composition with an Enter whose isComposing is already false, and keyCode 229
+test("the_enter_that_commits_a_composition_neither_steps_nor_replaces", async () => {
+  await show(request({ replace: true }));
+  typeInto(find(), "foo");
+  key(find(), "Enter", { keyCode: 229 });
+  expect(count()).toBe("1 of 3");
+  typeInto(replaceField()!, "bar");
+  const before = editor.state.doc;
+  key(replaceField()!, "Enter", { keyCode: 229 });
+  expect(editor.state.doc).toBe(before);
+  // a plain Enter still does
+  key(find(), "Enter");
+  expect(count()).toBe("2 of 3");
+});
+
 test("it_works_under_strict_mode_where_effects_run_twice", async () => {
   act(() => root.render(<StrictMode><FindBar editor={editor} request={request({ seed: "foo" })} onClose={onClose} /></StrictMode>));
   await frame();

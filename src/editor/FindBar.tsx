@@ -100,15 +100,18 @@ export function FindBar({ editor, request, onClose }: Props) {
     setNotice(`Replaced ${n} ${n === 1 ? "match" : "matches"}`);
   };
 
+  // WKWebView sends the Enter that commits a composition with isComposing already false, but keyCode 229
+  const composing = (e: KeyboardEvent) => e.nativeEvent.isComposing || e.keyCode === 229;
+
   const onFindKey = (e: KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return;
+    if (composing(e)) return;
     if (e.key !== "Enter") return;
     step(e.shiftKey ? -1 : 1);
     e.preventDefault();
   };
 
   const onReplaceKey = (e: KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return;
+    if (composing(e)) return;
     if (e.key !== "Enter") return;
     replaceCurrent();
     e.preventDefault();
