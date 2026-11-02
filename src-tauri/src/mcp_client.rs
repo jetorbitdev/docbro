@@ -486,11 +486,25 @@ struct HttpWire {
     protocol: Option<String>,
 }
 
+/// True when `url` names this computer, so the request never leaves it.
+fn is_loopback_url(url: &str) -> bool {
+    let Ok(uri) = url.parse::<ureq::http::Uri>() else { return false };
+    let host = uri.host().unwrap_or_default().to_ascii_lowercase();
+    matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]" | "::1")
+}
+
 impl HttpWire {
+    /// With the system's proxy (`HTTP_PROXY` and the like).
     fn new(url: &str, headers: &BTreeMap<String, String>) -> HttpWire {
+        HttpWire::with_proxy(url, headers, ureq::Proxy::try_from_env())
+    }
+
+    fn with_proxy(url: &str, headers: &BTreeMap<String, String>, system_proxy: Option<ureq::Proxy>) -> HttpWire {
         let agent = ureq::Agent::config_builder()
             // a redirect could carry the Authorization header to another host
             .max_redirects(0)
+            // plain http to this computer must not go through a proxy, which would read it all
+            .proxy(if is_loopback_url(url) { None } else { system_proxy })
             .http_status_as_error(false)
             .user_agent(concat!("DocBro/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -851,6 +865,21 @@ pub(crate) mod tests {
 
     pub(crate) const SHORT: Timeouts =
         Timeouts { handshake: Duration::from_millis(400), call: Duration::from_millis(400) };
+
+    #[test]
+    fn requests_to_a_server_on_this_computer_skip_any_proxy() {
+        // a proxy from HTTP_PROXY would see the traffic, and the server's headers, in the clear
+        let proxy = || Some(ureq::Proxy::new("http://proxy.example:3128").unwrap());
+        let none = BTreeMap::new();
+        for url in ["http://localhost:3000/mcp", "http://127.0.0.1:8931/mcp", "http://[::1]:8080/mcp", "https://LOCALHOST/mcp"] {
+            assert!(HttpWire::with_proxy(url, &none, proxy()).agent.config().proxy().is_none(), "{url}");
+        }
+        // other hosts keep the system's proxy
+        let remote = HttpWire::with_proxy("https://mcp.example.com/mcp", &none, proxy());
+        assert!(remote.agent.config().proxy().is_some());
+        assert!(HttpWire::with_proxy("https://mcp.example.com/mcp", &none, None).agent.config().proxy().is_none());
+        assert!(!is_loopback_url("http://localhost.example.com/mcp"));
+    }
 
     fn tool_def(name: &str) -> Value {
         json!({ "name": name, "description": format!("The {name} tool"), "inputSchema": { "type": "object", "properties": {} } })
