@@ -175,10 +175,30 @@ function pageSizeOf(sectPr: Element | null): PageSize {
 
 // --- Package -----------------------------------------------------------------
 
+// What the package may unpack to, as its directory declares it: a small file can claim gigabytes (a zip bomb).
+const MAX_PART_BYTES = 100 * 1024 * 1024;
+const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
+const TOO_LARGE = "This file is too large or damaged to open.";
+
 async function open(bytes: Uint8Array): Promise<JSZip> {
   // An OLE compound file: a .doc, or a .docx that Word encrypted with a password.
   if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0)
     throw new Error("This file is password-protected or in the old .doc format. Open it in Word and save it as .docx.");
+  let listed: JSZip;
+  try {
+    // Only the directory: checking the CRCs unpacks every part, so the sizes are looked at first.
+    listed = await JSZip.loadAsync(bytes);
+  } catch {
+    throw new Error("Not a Word document, or the file is damaged");
+  }
+  let total = 0;
+  for (const entry of Object.values(listed.files)) {
+    // JSZip keeps the declared size (with ZIP64 read) on the entry's data; it has no public field for it.
+    const size = (entry as unknown as { _data?: { uncompressedSize?: unknown } })._data?.uncompressedSize;
+    if (typeof size !== "number") continue;
+    total += size;
+    if (size > MAX_PART_BYTES || total > MAX_PACKAGE_BYTES) throw new Error(TOO_LARGE);
+  }
   try {
     return await JSZip.loadAsync(bytes, { checkCRC32: true });
   } catch {

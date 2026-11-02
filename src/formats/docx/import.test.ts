@@ -236,6 +236,32 @@ test("reads_pictures_by_their_extension_and_skips_formats_a_browser_cannot_show"
   expect(dropped).toEqual(["other_content"]);
 });
 
+/** The package with the uncompressed size its central directory declares for each named entry changed. */
+function declareSizes(bytes: Uint8Array, sizes: Record<string, number>): Uint8Array {
+  const out = bytes.slice();
+  const view = new DataView(out.buffer);
+  for (let i = 0; i + 46 <= out.length; i++) {
+    if (view.getUint32(i, true) !== 0x02014b50) continue; // a central directory header
+    const name = new TextDecoder().decode(out.subarray(i + 46, i + 46 + view.getUint16(i + 28, true)));
+    if (name in sizes) view.setUint32(i + 24, sizes[name], true);
+  }
+  return out;
+}
+
+test("a_package_that_declares_parts_too_large_to_hold_is_refused_before_they_are_read", async () => {
+  const bytes = await withParts(await buildDocx({ document: p(r("isi")) }), { "word/media/a.png": new Uint8Array(8), "word/media/b.png": new Uint8Array(8) }, []);
+  const MB = 1024 * 1024;
+  const message = "This file is too large or damaged to open.";
+  // one part over 100 MB
+  await expect(importDocx(declareSizes(bytes, { "word/document.xml": 101 * MB }))).rejects.toThrow(message);
+  // each part under it, all of them over 200 MB
+  await expect(importDocx(declareSizes(bytes, { "word/media/a.png": 99 * MB, "word/media/b.png": 99 * MB, "word/document.xml": 3 * MB })))
+    .rejects.toThrow(message);
+  // under both, the package is looked at as usual (and found damaged: the part is not the size it says)
+  await expect(importDocx(declareSizes(bytes, { "word/media/a.png": 99 * MB }))).rejects.toThrow("Not a Word document, or the file is damaged");
+  await expect(importDocx(bytes)).resolves.toBeTruthy();
+});
+
 // The .docx writer only has PNG, JPEG and GIF, so a BMP or WebP picture shown here would be lost on save without a word.
 test("reports_bmp_and_webp_pictures_as_content_it_cannot_keep", async () => {
   const bytes = await withParts(

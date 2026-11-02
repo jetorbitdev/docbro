@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, ErrorKind, Write},
+    io::{self, ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -66,11 +66,31 @@ fn write_replacing(path: &Path, data: &[u8], private: bool) -> CmdResult<()> {
     })
 }
 
+/// The largest file DocBro reads: past it, a document (or a picture in one) would take the
+/// webview's memory long before it could be shown.
+pub const MAX_FILE_BYTES: u64 = 200 * 1024 * 1024;
+const TOO_LARGE: &str = "This file is too large to open. DocBro opens files up to 200 MB.";
+
 pub fn read_bytes(path: &Path) -> CmdResult<Vec<u8>> {
-    fs::read(path).map_err(|e| match e.kind() {
+    read_at_most(path, MAX_FILE_BYTES)
+}
+
+fn read_at_most(path: &Path, limit: u64) -> CmdResult<Vec<u8>> {
+    let failed = |e: io::Error| match e.kind() {
         ErrorKind::NotFound => "Not found".to_string(),
         _ => format!("Cannot read {}: {e}", path.display()),
-    })
+    };
+    let file = File::open(path).map_err(failed)?;
+    if file.metadata().map_err(failed)?.len() > limit {
+        return Err(TOO_LARGE.into());
+    }
+    // the file can grow between the check and the read
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(failed)?;
+    if bytes.len() as u64 > limit {
+        return Err(TOO_LARGE.into());
+    }
+    Ok(bytes)
 }
 
 /// The `x-path` header holds the path run through `encodeURIComponent`.
@@ -191,6 +211,18 @@ mod tests {
         fs::write(&p, [0u8, 159, 146, 150]).unwrap();
         assert_eq!(read_bytes(&p).unwrap(), vec![0u8, 159, 146, 150]);
         assert_eq!(read_bytes(&dir.join("missing.md")).unwrap_err(), "Not found");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_refused_before_it_is_read() {
+        let dir = tmp("cap");
+        let p = dir.join("big.docx");
+        fs::write(&p, [7u8; 11]).unwrap();
+        assert_eq!(read_at_most(&p, 11).unwrap().len(), 11);
+        assert_eq!(read_at_most(&p, 10).unwrap_err(), TOO_LARGE);
+        assert_eq!(read_at_most(&dir.join("missing.md"), 10).unwrap_err(), "Not found");
+        assert_eq!(MAX_FILE_BYTES, 200 * 1024 * 1024);
         fs::remove_dir_all(&dir).unwrap();
     }
 
