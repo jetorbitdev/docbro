@@ -58,6 +58,8 @@ export function ProviderFields({ status, busy, pending, save, presets }: EngineF
   const pickPreset = (id: string) => {
     setPreset(id);
     setBaseUrl(presets.find((p) => p.id === id)?.base_url ?? "");
+    // a key typed for one provider never goes to the next one picked
+    setKey("");
     setAskKey(false);
     setModels(null);
     setListError(null);

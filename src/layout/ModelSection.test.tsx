@@ -165,6 +165,21 @@ test("the_provider_form_saves_with_its_own_command_and_never_sends_its_key_with_
   ]);
 });
 
+test("a_typed_key_is_cleared_when_another_provider_is_picked", async () => {
+  await render();
+  await pick(OTHER);
+  await type(field("API key")!, "sk-proj-typed-for-openai");
+  // a key for one provider must not go to the next one picked
+  await choose("Provider", "openrouter");
+  expect(field("API key")!.value).toBe("");
+  await type(field("Model")!, "anthropic/claude-sonnet-5.5");
+  await click("Save");
+  expect(saves()).toEqual([
+    { cmd: "assistant_save_openai", args: { preset: "openrouter", baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-5.5", apiKey: null } },
+  ]);
+  expect(everything()).not.toContain("sk-proj-typed-for-openai");
+});
+
 test("load_models_asks_with_the_unsaved_form_and_never_saves_or_switches", async () => {
   await render();
   await pick(OTHER);
