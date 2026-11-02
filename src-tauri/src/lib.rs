@@ -53,6 +53,10 @@ struct AppState {
     /// Files waiting for a window to pick them up once its webview listens. A label
     /// stays here after its files were taken, so that window is not handed another one.
     pending_open: Mutex<HashMap<String, Vec<String>>>,
+    /// Files Finder handed over while the app was still launching, before the main window
+    /// existed: macOS sends them ahead of the launch finishing. `None` once launched.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // only macOS hands files over at launch
+    launch_files: Mutex<Option<Vec<String>>>,
     /// MCP server settings and the live server
     mcp: Mutex<mcp::Runtime>,
     /// Tool calls sent to a window that wait for its answer
@@ -69,6 +73,7 @@ impl AppState {
             windows: Mutex::new(HashMap::new()),
             active: Mutex::new("main".into()),
             pending_open: Mutex::new(HashMap::new()),
+            launch_files: Mutex::new(Some(Vec::new())),
             mcp: Mutex::new(mcp::Runtime::load()),
             calls: calls::Calls::default(),
             servers: servers::Servers::load(),
@@ -84,6 +89,24 @@ impl AppState {
     fn untouched(&self, label: &str) -> bool {
         let pending = self.pending_open.lock_recovering().contains_key(label);
         is_untouched(pending, self.windows.lock_recovering().get(label))
+    }
+
+    /// Keeps `path` for when the launch finishes. False once launched: show it now.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn hold_until_launched(&self, path: &str) -> bool {
+        match self.launch_files.lock_recovering().as_mut() {
+            Some(held) => {
+                held.push(path.to_string());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The launch finished: the files held until now, and none are held from here on.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn launched(&self) -> Vec<String> {
+        self.launch_files.lock_recovering().take().unwrap_or_default()
     }
 }
 
@@ -550,10 +573,22 @@ pub fn run() {
         }
         #[cfg(target_os = "macos")]
         match event {
-            // Finder "Open With" / dropping a file on the Dock icon
+            // Finder "Open With" / dropping a file on the Dock icon. A file that launches the
+            // app arrives before `Ready`, when the main window is not built yet: a window
+            // opened for it then would end up hidden behind the main one.
             tauri::RunEvent::Opened { urls } => {
+                let state = handle.state::<AppState>();
                 for path in urls.iter().filter_map(|u| u.to_file_path().ok()) {
-                    let _ = route_open(handle, path.to_string_lossy().to_string());
+                    let path = path.to_string_lossy().to_string();
+                    if !state.hold_until_launched(&path) {
+                        let _ = route_open(handle, path);
+                    }
+                }
+            }
+            // the main window exists now: the first held file goes to it, the others to new windows
+            tauri::RunEvent::Ready => {
+                for path in handle.state::<AppState>().launched() {
+                    let _ = route_open(handle, path);
                 }
             }
             // the last window closed (Quit is `Some` or skips this): stay in the Dock like
@@ -612,6 +647,18 @@ mod tests {
             .lock_recovering()
             .insert("doc-2".into(), WindowDoc { dirty: true, ..blank() });
         assert!(!state.untouched("doc-2"));
+    }
+
+    #[test]
+    fn files_from_finder_wait_for_launch_then_go_straight_to_a_window() {
+        let state = AppState::new();
+        // Finder hands the files over before the main window exists
+        assert!(state.hold_until_launched("/a.docx"));
+        assert!(state.hold_until_launched("/b.md"));
+        assert_eq!(state.launched(), vec!["/a.docx".to_string(), "/b.md".to_string()]);
+        // once launched nothing is held, and launching again hands over nothing
+        assert!(!state.hold_until_launched("/c.docx"));
+        assert!(state.launched().is_empty());
     }
 
     #[test]
