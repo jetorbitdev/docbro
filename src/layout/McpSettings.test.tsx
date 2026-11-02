@@ -255,3 +255,18 @@ test("saved_env_values_are_not_kept_for_another_command", async () => {
   expect(host.textContent).toContain("The saved values are not sent to a different server. Enter them again.");
   expect(button("Save").disabled).toBe(true);
 });
+
+test("saved_env_values_are_not_kept_for_other_arguments", async () => {
+  listed = [files];
+  await render(false, "Files");
+  await click("Edit");
+  const note = "The saved values are not sent to a different server. Enter them again.";
+  const written = AWKWARD.map(quoteArg).join(" ");
+  // `npx -y <package>`: the same program, another server
+  await type(field("Arguments"), "-y other-package");
+  expect(host.textContent).toContain(note);
+  expect(button("Save").disabled).toBe(true);
+  await type(field("Arguments"), `  ${written}  `);
+  expect(host.textContent).not.toContain(note);
+  expect(button("Save").disabled).toBe(false);
+});

@@ -145,11 +145,16 @@ export function ServerForm({ editing, taken, onSaved, onCancel }: Props) {
   const setRows = http ? setHeaders : setEnv;
   // a row left blank is no row
   const filled = rows.filter((r) => r.name.trim() || r.value || r.saved).map((r) => ({ ...r, name: r.name.trim() }));
-  // Rust only fills empty saved values in for the same origin or command, so a token never goes to another host
+  const { args: argList, open: openQuote } = parseArgs(args);
+  // Rust only fills empty saved values in for the same origin or command line (servers.rs, `same_target`), so a
+  // token never goes to another host or program
+  const savedArgs = editing?.args ?? [];
   const kept =
     editing?.transport === transport &&
-    (http ? originOf(url) !== null && originOf(url) === originOf(editing.url ?? "") : command.trim() === editing.command?.trim());
-  const { args: argList, open: openQuote } = parseArgs(args);
+    (http
+      ? originOf(url) !== null && originOf(url) === originOf(editing.url ?? "")
+      : command.trim() === editing.command?.trim() &&
+        argList.length === savedArgs.length && argList.every((a, i) => a.trim() === savedArgs[i].trim()));
   const invalid = problem(name, transport, url, command, openQuote, filled, kept);
   const line = commandLine(command.trim(), argList);
 

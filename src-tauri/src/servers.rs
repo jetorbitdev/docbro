@@ -446,12 +446,15 @@ fn prepare(reg: &Registry, mut config: ServerConfig) -> CmdResult<ServerConfig> 
 }
 
 /// Whether saved header or env values may go with `new`: only to the same HTTP origin (scheme,
-/// host and port) or the same command. Settings that point elsewhere must be given them again,
-/// so editing a URL never sends a token to another host.
+/// host and port) or the same command line (command and arguments). Settings that point
+/// elsewhere must be given them again, so editing a URL never sends a token to another host,
+/// nor editing `npx -y <package>` an API key to another package. ServerForm.tsx (`kept`) mirrors it.
 fn same_target(old: &ServerSpec, new: &ServerSpec) -> bool {
     match (old, new) {
         (ServerSpec::Http { url: a, .. }, ServerSpec::Http { url: b, .. }) => origin(a).is_some_and(|o| Some(o) == origin(b)),
-        (ServerSpec::Stdio { command: a, .. }, ServerSpec::Stdio { command: b, .. }) => a.trim() == b.trim(),
+        (ServerSpec::Stdio { command: a, args: a_args, .. }, ServerSpec::Stdio { command: b, args: b_args, .. }) => {
+            a.trim() == b.trim() && a_args.len() == b_args.len() && a_args.iter().zip(b_args).all(|(x, y)| x.trim() == y.trim())
+        }
         _ => false,
     }
 }
@@ -647,10 +650,14 @@ mod tests {
             args: args.iter().map(|a| a.to_string()).collect(),
             env: BTreeMap::from([("API_KEY".to_string(), value.to_string())]),
         };
-        s.save(config("fs", "Files", false, stdio("files-mcp", &["--a"], "sk-live-abcdef123"))).unwrap();
-        // other arguments, the same program: kept
-        s.save(config("fs", "Files", false, stdio("  files-mcp ", &["--b"], ""))).unwrap();
+        s.save(config("fs", "Files", false, stdio("files-mcp", &["--b"], "sk-live-abcdef123"))).unwrap();
+        // the same command line, spaces around it aside: kept
+        s.save(config("fs", "Files", false, stdio("  files-mcp ", &[" --b "], ""))).unwrap();
         assert_eq!(saved_secret(&s, "fs", "API_KEY").unwrap(), "sk-live-abcdef123");
+        // the same program with other arguments can be another server (`npx -y <package>`): not kept
+        for args in [&["--c"][..], &["--b", "--c"], &[]] {
+            assert_eq!(s.prepare(config("fs", "Files", false, stdio("files-mcp", args, ""))).unwrap().spec.secrets()["API_KEY"], "", "{args:?}");
+        }
         // another program never gets them
         assert_eq!(s.prepare(config("fs", "Files", false, stdio("other-mcp", &["--b"], ""))).unwrap().spec.secrets()["API_KEY"], "");
         s.save(config("fs", "Files", false, stdio("other-mcp", &["--b"], ""))).unwrap();
