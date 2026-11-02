@@ -7,3 +7,4 @@ src-tauri/gen
 .vitest/
 .vitest-cache/
 .playwright-mcp/
+CLAUDE.md
