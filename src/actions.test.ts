@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   buildActions,
@@ -276,6 +277,27 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   expect(print).toHaveBeenCalledOnce();
   actions.newWindow!();
   expect(shell.openInWindow).toHaveBeenCalledWith(null);
+  print.mockRestore();
+});
+
+// On macOS Tauri answers window.print() with a call into Rust, which the window's capability has to allow.
+test("print_is_allowed_in_every_document_window", () => {
+  const capability = JSON.parse(readFileSync("src-tauri/capabilities/default.json", "utf8"));
+  expect(capability.windows).toEqual(["*"]);
+  expect(capability.permissions).toContain("core:webview:allow-print");
+});
+
+test("a_print_that_fails_says_so_instead_of_doing_nothing", async () => {
+  const shell = fakeShell();
+  const refused = Promise.reject("webview.print not allowed");
+  const print = vi.spyOn(window, "print").mockImplementation(() => refused as unknown as void);
+  const actions = buildActions({ editor, session, ui: {} as UiState, setUi: () => {}, openPalette: () => {}, shell });
+  actions.print!();
+  await vi.waitFor(() => expect(shell.showError).toHaveBeenCalledOnce());
+  const shown = vi.mocked(shell.showError).mock.calls[0][0] as Error;
+  expect(shown.message).toContain("print dialog");
+  expect(shown.message).toContain("webview.print not allowed");
+  expect(shown.message).not.toContain("—");
   print.mockRestore();
 });
 

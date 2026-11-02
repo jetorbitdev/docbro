@@ -173,6 +173,17 @@ export function recentlyRan(ms: number, now: () => number = Date.now): (id: stri
   };
 }
 
+/** Opens the print dialog. On macOS window.print() goes through Tauri and can be refused,
+ *  so a refusal is shown rather than leaving ⌘P doing nothing. */
+export async function printPage(shell: Shell): Promise<void> {
+  try {
+    await (window.print() as unknown);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    shell.showError(new Error(`DocBro could not open the print dialog (${why}). Try ⌘P again. If it still fails, save the document and print it from Word or Pages.`));
+  }
+}
+
 // ------------------------------------------------------------------ the registry's actions
 
 export interface ActionDeps {
@@ -207,7 +218,7 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
     save: () => void runExclusive(shell, () => saveDocument(shell, session)),
     saveAs: () => void runExclusive(shell, () => saveAs(shell, session)),
-    print: () => window.print(),
+    print: () => void printPage(shell),
     uploadGoogle: () =>
       void runExclusive(shell, () =>
         uploadToGoogleDocs(shell, session, google, { openSettings: deps.openGoogleSettings, onBusy: deps.onUploading }),
