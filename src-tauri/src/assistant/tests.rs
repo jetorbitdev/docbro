@@ -227,6 +227,30 @@ fn system_prompt_carries_the_document_info_and_the_selection() {
     assert!(!none.contains("read_document") && none.contains("user's language") && none.contains("The user selected: \"x\""));
 }
 
+#[test]
+fn system_prompt_holds_at_most_200_headings_of_120_characters_and_a_name_of_200() {
+    let outline: Vec<Value> = (1..=250)
+        .map(|i| json!({ "block": i, "level": 1, "text": format!("H{i} {}", "x".repeat(300)) }))
+        .collect();
+    let info = json!({ "name": format!("{}.docx", "n".repeat(500)), "blocks": 250, "outline": outline }).to_string();
+    let prompt = build_system_prompt(&info, None);
+    let headings: Vec<&str> = prompt.lines().filter(|l| l.starts_with("- H")).collect();
+    assert_eq!(headings.len(), 200);
+    assert!(headings[0].starts_with(&format!("- H1 {}", "x".repeat(117 - 3))), "{}", headings[0]);
+    assert!(headings[0].contains("… (block 1)"), "{}", headings[0]);
+    assert_eq!(headings[0].chars().count(), "- ".len() + 120 + "… (block 1)".chars().count());
+    assert!(prompt.contains("- H200 "));
+    assert!(!prompt.contains("- H201 "));
+    assert!(prompt.contains("… and 50 more headings.\n"), "{prompt}");
+    assert!(prompt.contains(&format!("\"{}…\"", "n".repeat(200))));
+    assert!(!prompt.contains(&"n".repeat(201)));
+    // a short outline is whole, with no note
+    let short = json!({ "name": "A.md", "blocks": 2, "outline": [{ "block": 1, "level": 2, "text": "Line\none" }] }).to_string();
+    let prompt = build_system_prompt(&short, None);
+    assert!(prompt.contains("  - Line one (block 1)\n"), "{prompt}");
+    assert!(!prompt.contains("more headings"));
+}
+
 const TEXT_STREAM: &str = "event: message_start\r\n\
 data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[]}}\r\n\
 \r\n\

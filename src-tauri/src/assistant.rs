@@ -538,21 +538,31 @@ pub(crate) fn build_system_prompt(doc_info_json: &str, selection: Option<&str>) 
     prompt
 }
 
+/// The prompt is part of Claude Code's command line, so the outline in it has a size limit:
+/// at most this many headings, each cut to `MAX_HEADING` characters, and a name of `MAX_NAME`.
+const MAX_HEADINGS: usize = 200;
+const MAX_HEADING: usize = 120;
+const MAX_NAME: usize = 200;
+
 fn describe_document(info: &str) -> String {
     let Ok(info) = serde_json::from_str::<Value>(info) else {
-        return format!("Document info: {info}\n");
+        return format!("Document info: {}\n", cut(info, MAX_HEADINGS * MAX_HEADING));
     };
-    let name = info["name"].as_str().unwrap_or("Untitled");
+    let name = cut(info["name"].as_str().unwrap_or("Untitled"), MAX_NAME);
     let blocks = info["blocks"].as_u64().unwrap_or(0);
     let plural = if blocks == 1 { "" } else { "s" };
     let mut text = format!("The open document is \"{name}\", {blocks} block{plural} long.\n");
     match info["outline"].as_array().filter(|o| !o.is_empty()) {
         Some(outline) => {
             text.push_str("Its outline (headings and their block numbers):\n");
-            for heading in outline {
+            for heading in outline.iter().take(MAX_HEADINGS) {
                 let depth = heading["level"].as_u64().unwrap_or(1).clamp(1, 3) as usize - 1;
-                let title = heading["text"].as_str().unwrap_or_default();
-                text.push_str(&format!("{}- {title} (block {})\n", "  ".repeat(depth), heading["block"]));
+                // one line per heading, whatever breaks its text has
+                let title = heading["text"].as_str().unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ");
+                text.push_str(&format!("{}- {} (block {})\n", "  ".repeat(depth), cut(&title, MAX_HEADING), heading["block"]));
+            }
+            if outline.len() > MAX_HEADINGS {
+                text.push_str(&format!("… and {} more headings.\n", outline.len() - MAX_HEADINGS));
             }
         }
         None => text.push_str("It has no headings.\n"),
