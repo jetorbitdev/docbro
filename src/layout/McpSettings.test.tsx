@@ -33,11 +33,13 @@ let host: HTMLElement;
 let root: Root;
 let calls: { cmd: string; args: Record<string, unknown> }[];
 let listed: unknown[];
+let notice: string | null;
 
 beforeEach(() => {
   mockWindows("main");
   calls = [];
   listed = [sheetbro];
+  notice = null;
   mockIPC((cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;
     calls.push({ cmd, args });
@@ -59,6 +61,8 @@ beforeEach(() => {
         return [];
       case "servers_list":
         return listed;
+      case "servers_notice":
+        return notice;
       case "servers_save":
         return [sheetbro];
       case "servers_test":
@@ -254,6 +258,16 @@ test("saved_env_values_are_not_kept_for_another_command", async () => {
   await type(field("Command"), "other-mcp");
   expect(host.textContent).toContain("The saved values are not sent to a different server. Enter them again.");
   expect(button("Save").disabled).toBe(true);
+});
+
+test("a_server_list_that_could_not_be_read_is_said_so", async () => {
+  await render();
+  expect(host.textContent).not.toContain("could not be read");
+  act(() => root.unmount());
+  root = createRoot(host);
+  notice = "Your server list could not be read; it was kept as servers.json.bak.";
+  listed = [];
+  await render(false, "Your server list could not be read; it was kept as servers.json.bak.");
 });
 
 test("saved_env_values_are_not_kept_for_other_arguments", async () => {

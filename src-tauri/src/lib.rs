@@ -516,6 +516,7 @@ pub fn run() {
             mcp::mcp_regenerate_token,
             calls::mcp_reply,
             servers::servers_list,
+            servers::servers_notice,
             servers::servers_save,
             servers::servers_remove,
             servers::servers_set_enabled,

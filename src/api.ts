@@ -180,6 +180,8 @@ export const api = {
   mcpRegenerateToken: () => invoke<McpStatus>("mcp_regenerate_token"),
   /** The user's MCP servers for the Assistant. */
   serversList: () => invoke<ServerView[]>("servers_list"),
+  /** Why the saved server list was not loaded (servers.json could not be read), or null. */
+  serversNotice: () => invoke<string | null>("servers_notice"),
   /** Adds the server, or replaces the one with its id (which then restarts on next use). */
   serversSave: (config: ServerConfig) => invoke<ServerView[]>("servers_save", { config }),
   serversRemove: (id: string) => invoke<ServerView[]>("servers_remove", { id }),

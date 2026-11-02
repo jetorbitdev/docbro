@@ -152,7 +152,8 @@ fn check(config: &ServerConfig) -> CmdResult<()> {
     config.spec.validate()
 }
 
-fn load_from(path: &Path) -> Vec<ServerConfig> {
+/// The saved servers, and what to tell the user when the file was there but could not be read.
+fn load_from(path: &Path) -> (Vec<ServerConfig>, Option<String>) {
     // a file someone else could read is made private before anything else
     #[cfg(unix)]
     {
@@ -163,11 +164,20 @@ fn load_from(path: &Path) -> Vec<ServerConfig> {
             }
         }
     }
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<SavedFile>(&text).ok())
-        .map(|f| f.servers)
-        .unwrap_or_default()
+    let parsed = match fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str::<SavedFile>(&text).ok(),
+        // not UTF-8: as damaged as bad JSON
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => None,
+        Err(_) => return (Vec::new(), None),
+    };
+    match parsed {
+        Some(file) => (file.servers, None),
+        // moved aside (over an older backup), so the next save does not write over the user's servers
+        None => match fs::rename(path, path.with_file_name("servers.json.bak")) {
+            Ok(()) => (Vec::new(), Some("Your server list could not be read; it was kept as servers.json.bak.".into())),
+            Err(_) => (Vec::new(), Some("Your server list could not be read.".into())),
+        },
+    }
 }
 
 /// The list and its connections. The lock is only ever held for bookkeeping: connecting,
@@ -179,6 +189,8 @@ struct Registry {
     timeouts: Timeouts,
     retry_after: Duration,
     next_generation: u64,
+    /// why the saved list was not loaded, for the settings to say
+    notice: Option<String>,
 }
 
 impl Registry {
@@ -234,8 +246,8 @@ impl Servers {
     }
 
     fn at(file: CmdResult<PathBuf>, timeouts: Timeouts) -> Servers {
-        let configs = file.as_deref().map(load_from).unwrap_or_default();
-        let mut registry = Registry { entries: Vec::new(), file, timeouts, retry_after: RETRY_AFTER, next_generation: 0 };
+        let (configs, notice) = file.as_deref().map(load_from).unwrap_or_default();
+        let mut registry = Registry { entries: Vec::new(), file, timeouts, retry_after: RETRY_AFTER, next_generation: 0, notice };
         for config in configs {
             registry.add(config);
         }
@@ -253,6 +265,11 @@ impl Servers {
 
     pub fn views(&self) -> Vec<ServerView> {
         self.lock().entries.iter().map(Entry::view).collect()
+    }
+
+    /// Why the saved server list was not loaded, if it was not.
+    pub fn notice(&self) -> Option<String> {
+        self.lock().notice.clone()
     }
 
     /// Adds `config`, or replaces the server with its id, stopping the old connection. A server
@@ -494,6 +511,12 @@ pub async fn servers_list(app: AppHandle) -> Vec<ServerView> {
     with_servers(app, |s| s.views()).await.unwrap_or_default()
 }
 
+/// Why the saved server list was not loaded, if it was not: a line for MCP settings.
+#[tauri::command]
+pub async fn servers_notice(app: AppHandle) -> Option<String> {
+    with_servers(app, |s| s.notice()).await.ok().flatten()
+}
+
 #[tauri::command]
 pub async fn servers_save(config: ServerConfig, app: AppHandle) -> CmdResult<Vec<ServerView>> {
     with_servers(app, |s| s.save(config).map(|_| s.views())).await?
@@ -597,6 +620,33 @@ mod tests {
         fs::write(&path, "{ not json").unwrap();
         assert!(Servers::at(Ok(path.clone()), Timeouts::default()).views().is_empty());
         assert!(config_path().unwrap().ends_with("com.jetorbit.docbro/servers.json"));
+    }
+
+    #[test]
+    fn a_server_list_that_cannot_be_read_is_kept_as_a_backup_and_said_so() {
+        let (_, path) = servers("corrupt");
+        let backup = path.with_file_name("servers.json.bak");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&backup, "an older backup").unwrap();
+        fs::write(&path, "{ not json, \"token\": \"sk-live-abcdef123\"").unwrap();
+        let s = Servers::at(Ok(path.clone()), Timeouts::default());
+        assert!(s.views().is_empty());
+        assert_eq!(s.notice().as_deref(), Some("Your server list could not be read; it was kept as servers.json.bak."));
+        // the file is moved aside, over the older backup, so the next save cannot lose it
+        assert!(!path.exists());
+        assert_eq!(fs::read_to_string(&backup).unwrap(), "{ not json, \"token\": \"sk-live-abcdef123\"");
+        s.save(config("notes", "Notes", false, http("https://a.example/mcp", &[]))).unwrap();
+        assert!(fs::read_to_string(&backup).unwrap().contains("sk-live-abcdef123"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&backup).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        // a missing file and a good one have nothing to say
+        fs::remove_file(&backup).unwrap();
+        assert_eq!(Servers::at(Ok(path.clone()), Timeouts::default()).notice(), None);
+        assert_eq!(Servers::at(Ok(path.with_file_name("missing.json")), Timeouts::default()).notice(), None);
+        assert!(!backup.exists());
     }
 
     #[test]

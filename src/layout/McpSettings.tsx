@@ -91,6 +91,7 @@ export function McpSettings({ onClose, addServer = false }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [servers, setServers] = useState<ServerView[]>([]);
+  const [serversNotice, setServersNotice] = useState<string | null>(null);
   // the server form, and the server it edits (null adds one)
   const [form, setForm] = useState<{ editing: ServerView | null } | null>(addServer ? { editing: null } : null);
   const [port, setPort] = useState("");
@@ -106,6 +107,7 @@ export function McpSettings({ onClose, addServer = false }: Props) {
       setPort(String(s.port));
     }, (e) => setError(message(e)));
     api.serversList().then(setServers, () => {});
+    api.serversNotice().then(setServersNotice, () => {});
   }, []);
 
   useEffect(() => {
@@ -198,7 +200,7 @@ export function McpSettings({ onClose, addServer = false }: Props) {
           ) : (
             <>
               <ModelSection />
-              <ServersSection servers={servers} onChange={setServers} onEdit={(editing) => setForm({ editing })} />
+              <ServersSection servers={servers} notice={serversNotice} onChange={setServers} onEdit={(editing) => setForm({ editing })} />
               <section className="mcp-section">
                 <div className="mcp-row">
                   <button
@@ -305,12 +307,14 @@ function savedConfig(v: ServerView): ServerConfig {
 
 interface ServersProps {
   servers: ServerView[];
+  /** why the saved list was not loaded, if it was not */
+  notice: string | null;
   onChange(views: ServerView[]): void;
   onEdit(server: ServerView | null): void;
 }
 
 /** The user's MCP servers. Error text comes from the server: it is shown as text, never as markup. */
-function ServersSection({ servers, onChange, onEdit }: ServersProps) {
+function ServersSection({ servers, notice, onChange, onEdit }: ServersProps) {
   const [tests, setTests] = useState<Record<string, { ok: boolean; text: string } | "running">>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -344,6 +348,7 @@ function ServersSection({ servers, onChange, onEdit }: ServersProps) {
       <p className="mcp-lead">
         MCP servers the Assistant can use. One only runs while it is switched on in the Assistant panel.
       </p>
+      {notice && <p className="mcp-note">{notice}</p>}
       <div className="server-list">
         {servers.map((v) => {
           const result = tests[v.id];
