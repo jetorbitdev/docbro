@@ -1004,6 +1004,49 @@ mod tests {
     }
 
     #[test]
+    fn an_unread_body_cannot_smuggle_a_second_request() {
+        let host = TestHost::new();
+        let (_server, port) = start(&host);
+        // a web page's request (Origin) is refused without its body being read; the body, past the
+        // drain limit, holds a request of its own that would skip the Host and Origin checks
+        let tool = r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"undo"}}"#;
+        let forged = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: {}\r\n\r\n{tool}",
+            tool.len()
+        );
+        let mut body = forged.clone().into_bytes();
+        body.resize(70_000 - 2, b' ');
+        body.extend_from_slice(b"\r\n"); // so that, read as requests, the padding ends in a 400 and a close
+        let head = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: https://evil.example\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(head.as_bytes()).unwrap();
+        s.write_all(&body).unwrap();
+        // the server closes the connection: read_to_end returns instead of timing out
+        let mut got = Vec::new();
+        s.read_to_end(&mut got).unwrap();
+        let text = String::from_utf8_lossy(&got);
+        assert_eq!(text.matches("HTTP/1.1 ").count(), 1, "{text}");
+        assert!(text.starts_with("HTTP/1.1 403"), "{text}");
+        assert!(host.seen().is_empty());
+
+        // a chunked body is never drained, whatever its size: the request it holds is not read either
+        let head = format!("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: https://evil.example\r\nTransfer-Encoding: chunked\r\n\r\n");
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(head.as_bytes()).unwrap();
+        s.write_all(format!("{forged}\r\n").as_bytes()).unwrap();
+        let mut got = Vec::new();
+        s.read_to_end(&mut got).unwrap();
+        let text = String::from_utf8_lossy(&got);
+        assert_eq!(text.matches("HTTP/1.1 ").count(), 1, "{text}");
+        assert!(host.seen().is_empty());
+    }
+
+    #[test]
     fn restart_on_the_same_port_succeeds_every_time() {
         let host = TestHost::new();
         let mut rt = Runtime::at(Ok(tmp("restart/mcp.json")));

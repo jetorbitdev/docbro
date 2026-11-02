@@ -60,9 +60,10 @@ where
 }
 
 /// DocBro patch: the most a dropped reader drains so the connection can serve another request.
-/// A larger unread body is left alone: the connection cannot be reused then, and reading it
-/// would let a client that claims a huge body (and sends nothing) hold the thread.
-const DRAIN_LIMIT: usize = 64 * 1024;
+/// A larger unread body is left alone, since reading it would let a client that claims a huge
+/// body (and sends nothing) hold the thread. Its bytes would then be read as the next request,
+/// so `ClientConnection` serves no more requests after one whose body is this large.
+pub(crate) const DRAIN_LIMIT: usize = 64 * 1024;
 
 impl<R> Drop for EqualReader<R>
 where

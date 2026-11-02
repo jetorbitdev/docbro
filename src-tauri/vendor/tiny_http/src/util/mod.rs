@@ -1,5 +1,6 @@
 pub use self::custom_stream::CustomStream;
 pub use self::equal_reader::EqualReader;
+pub(crate) use self::equal_reader::DRAIN_LIMIT;
 pub use self::fused_reader::FusedReader;
 pub use self::messages_queue::MessagesQueue;
 pub use self::refined_tcp_stream::RefinedTcpStream;

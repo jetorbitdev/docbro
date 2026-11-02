@@ -259,6 +259,14 @@ impl Iterator for ClientConnection {
                 _ => (),
             };
 
+            // DocBro patch: a body that may be dropped unread is not drained (over DRAIN_LIMIT) or
+            // cannot be (chunked), and its bytes would be read as the next request, past every
+            // check the server makes. The connection ends with this request instead.
+            let chunked = rq.headers().iter().any(|h| h.field.equiv("Transfer-Encoding"));
+            if chunked || rq.body_length().is_some_and(|len| len > crate::util::DRAIN_LIMIT) {
+                self.no_more_requests = true;
+            }
+
             // returning the request
             return Some(rq);
         }
