@@ -541,8 +541,54 @@ pub(crate) struct Outcome {
     pub(crate) conversed: bool,
 }
 
-/// The process groups of the runs going on, for `stop_all`.
-static GROUPS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// The process groups of the runs going on, each with its MCP config file, for `stop_all`.
+static GROUPS: Mutex<Vec<(u32, PathBuf)>> = Mutex::new(Vec::new());
+
+/// The MCP config files `TempConfig` writes: `docbro-mcp-<uuid>.json`, as `new_uuid` spells it.
+fn is_config_name(name: &str) -> bool {
+    let Some(id) = name.strip_prefix("docbro-mcp-").and_then(|rest| rest.strip_suffix(".json")) else {
+        return false;
+    };
+    id.len() == 36
+        && id.char_indices().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { matches!(c, '0'..='9' | 'a'..='f') })
+}
+
+/// A config older than this that is still there was left by a DocBro that quit mid-run or
+/// crashed. A newer one may belong to another DocBro, whose `claude` has yet to read it.
+const STALE_CONFIG: Duration = Duration::from_secs(60);
+
+/// Removes the MCP config files (they hold tokens and server headers) that runs of an earlier
+/// DocBro left in the temp folder. Run at startup.
+pub fn sweep_stale_configs() {
+    let dir = std::env::temp_dir();
+    thread::spawn(move || sweep_configs(&dir, STALE_CONFIG));
+}
+
+/// Removes from `dir` every regular file of the user's with a config's name, last changed
+/// over `older_than` ago. Links, folders and other names are left alone.
+fn sweep_configs(dir: &Path, older_than: Duration) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        if !entry.file_name().to_str().is_some_and(is_config_name) {
+            continue;
+        }
+        // `DirEntry::metadata` does not follow a link
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        // SAFETY: getuid() cannot fail and has no side effects
+        if std::os::unix::fs::MetadataExt::uid(&meta) != unsafe { libc::getuid() } {
+            continue;
+        }
+        let age = meta.modified().ok().and_then(|m| now.duration_since(m).ok());
+        if age.is_some_and(|age| age >= older_than) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
 
 #[cfg(unix)]
 fn signal_group(pid: u32, signal: libc::c_int) {
@@ -622,7 +668,7 @@ impl Claude {
     fn over(&mut self) {
         self.over = true;
         let pid = self.child.id();
-        GROUPS.lock_recovering().retain(|p| *p != pid);
+        GROUPS.lock_recovering().retain(|(p, _)| *p != pid);
     }
 }
 
@@ -632,11 +678,20 @@ impl Drop for Claude {
     }
 }
 
-/// Every Claude Code run still going is told to stop: DocBro is quitting.
+/// Every Claude Code run still going is told to stop, and its MCP config removed: DocBro is
+/// quitting, so the runs' threads will not get to drop their `TempConfig`.
 pub fn stop_all() {
-    #[cfg(unix)]
-    for pid in GROUPS.lock_recovering().iter() {
-        signal_group(*pid, libc::SIGTERM);
+    let runs = std::mem::take(&mut *GROUPS.lock_recovering());
+    stop_runs(&runs, |_pid| {
+        #[cfg(unix)]
+        signal_group(_pid, libc::SIGTERM);
+    });
+}
+
+fn stop_runs(runs: &[(u32, PathBuf)], mut signal: impl FnMut(u32)) {
+    for (pid, config) in runs {
+        signal(*pid);
+        let _ = fs::remove_file(config);
     }
 }
 
@@ -731,7 +786,7 @@ fn run_cli(
         ErrorKind::NotFound => NOT_FOUND.to_string(),
         _ => format!("Could not start Claude Code: {e}"),
     })?;
-    GROUPS.lock_recovering().push(child.id());
+    GROUPS.lock_recovering().push((child.id(), config.0.clone()));
     let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let mut claude = Claude { child, over: false };
     let (Some(mut stdin), Some(stdout), Some(stderr)) = pipes else {

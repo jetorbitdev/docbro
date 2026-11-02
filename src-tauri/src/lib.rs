@@ -451,6 +451,7 @@ pub fn run() {
         .setup(|app| {
             app.set_menu(build_menu(app.handle())?)?;
             mcp::autostart(app.handle());
+            claude_code::sweep_stale_configs();
             Ok(())
         })
         .on_menu_event(|app, event| {

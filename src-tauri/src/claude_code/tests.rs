@@ -767,3 +767,70 @@ fn claude_status_and_engine_default() {
     let status = b.status();
     assert_eq!((status.engine, status.configured, status.claude.found), (Engine::ApiKey, false, false));
 }
+
+// -- MCP config files left behind -------------------------------------------------------
+
+fn sweep_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("docbro-claude-test-{}-{name}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn quitting_mid_run_removes_the_runs_mcp_config() {
+    let dir = sweep_dir("stop-all");
+    let config = dir.join(format!("docbro-mcp-{}.json", new_uuid()));
+    fs::write(&config, "{\"token\":\"secret\"}").unwrap();
+    let mut signalled = Vec::new();
+    stop_runs(&[(4242, config.clone())], |pid| signalled.push(pid));
+    assert_eq!(signalled, vec![4242]);
+    assert!(!config.exists());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_config_a_run_left_behind_is_swept_and_nothing_else() {
+    let dir = sweep_dir("sweep");
+    let stale = dir.join(format!("docbro-mcp-{}.json", new_uuid()));
+    let keep = [
+        "docbro-mcp-x.json".to_string(),
+        format!("docbro-mcp-{}.json.bak", new_uuid()),
+        format!("other-{}.json", new_uuid()),
+        format!("docbro-mcp-{}.json", new_uuid().to_uppercase()),
+    ];
+    fs::write(&stale, "{}").unwrap();
+    for name in &keep {
+        fs::write(dir.join(name), "{}").unwrap();
+    }
+    // a folder by the name is not a file this sweep may remove
+    let folder = dir.join(format!("docbro-mcp-{}.json", new_uuid()));
+    fs::create_dir(&folder).unwrap();
+    #[cfg(unix)]
+    let link = {
+        // a link by the name is left, and so is the file it points at
+        let target = dir.join("target.txt");
+        fs::write(&target, "mine").unwrap();
+        let link = dir.join(format!("docbro-mcp-{}.json", new_uuid()));
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        link
+    };
+
+    // a config written a moment ago may be a run of another DocBro, about to be read
+    sweep_configs(&dir, Duration::from_secs(60));
+    assert!(stale.exists());
+    sweep_configs(&dir, Duration::ZERO);
+    assert!(!stale.exists());
+    for name in &keep {
+        assert!(dir.join(name).exists(), "{name}");
+    }
+    assert!(folder.is_dir());
+    #[cfg(unix)]
+    {
+        assert!(fs::symlink_metadata(&link).is_ok());
+        assert_eq!(fs::read_to_string(dir.join("target.txt")).unwrap(), "mine");
+    }
+    // a missing folder is not an error
+    sweep_configs(&dir.join("missing"), Duration::ZERO);
+    fs::remove_dir_all(&dir).unwrap();
+}
