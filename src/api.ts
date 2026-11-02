@@ -144,6 +144,34 @@ export type AssistantEvent =
   | { type: "done" }
   | { type: "error"; message: string };
 
+/**
+ * Google Docs as the webview may know it: the OAuth client's ID and its secret's last four
+ * characters, never the secret or a token.
+ */
+export interface GoogleStatus {
+  /** the OAuth client DocBro signs in with, empty when there is none */
+  client_id: string;
+  /** the user entered this client; otherwise it is the one the build carries */
+  custom_client: boolean;
+  /** the build carries a client, used when the user enters none */
+  built_in: boolean;
+  secret_hint: string | null;
+  connected: boolean;
+  /** the Google account connected */
+  email: string | null;
+  /** a sign-in is waiting for the browser */
+  signing_in: boolean;
+}
+
+/** One upload to Google Docs. */
+export interface GoogleUpload {
+  file_id: string;
+  /** the Google Doc's address */
+  url: string;
+  /** a new Google Doc; false when the one made from this file before was updated */
+  created: boolean;
+}
+
 /** Wrappers for the Rust commands, so no other file spells a command name or its arguments. */
 export const api = {
   /** Rejects with "Not found" when the file does not exist. */
@@ -240,4 +268,31 @@ export const api = {
   assistantContinue: (sessionId: string) => invoke<void>("assistant_continue", { sessionId }),
   /** Reads a claude.ai/code link or a session id; rejects when it holds no plain session id. */
   assistantTeleport: (input: string) => invoke<TeleportOutcome>("assistant_teleport", { input }),
+  googleStatus: () => invoke<GoogleStatus>("google_status"),
+  /**
+   * Saves the user's own OAuth client; an empty `clientId` goes back to the build's. `clientSecret`
+   * null keeps the saved secret, but only for the same client ID. Another client ends the connection.
+   */
+  googleSaveClient: (clientId: string, clientSecret: string | null) =>
+    invoke<GoogleStatus>("google_save_client", { clientId, clientSecret }),
+  /**
+   * Shows Google's sign-in page in the browser and resolves once the browser comes back. Rejects
+   * when the sign-in is declined, cancelled (`googleCancel`) or times out after 5 minutes.
+   */
+  googleConnect: () => invoke<GoogleStatus>("google_connect"),
+  googleCancel: () => invoke<void>("google_cancel"),
+  /** Forgets the account here and asks Google to end DocBro's access. */
+  googleDisconnect: () => invoke<GoogleStatus>("google_disconnect"),
+  /**
+   * Uploads `docx` as a Google Doc named `title`. The file at `path` updates the Google Doc it made
+   * before; a document with no file makes a new one each time.
+   */
+  googleUpload: (docx: Uint8Array, path: string | null, title: string) =>
+    invoke<GoogleUpload>("google_upload", docx, {
+      headers: { "x-title": encodeURIComponent(title), ...(path ? { "x-path": encodeURIComponent(path) } : {}) },
+    }),
+  /** Shows the Google Doc in the browser. */
+  googleOpen: (fileId: string) => invoke<void>("google_open", { fileId }),
+  /** Shows the Google Cloud Console page that turns on the Drive API, or the one that makes an OAuth client. */
+  googleOpenConsole: (page: "drive_api" | "oauth_client") => invoke<void>("google_open_console", { page }),
 };

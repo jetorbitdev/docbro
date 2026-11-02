@@ -2,6 +2,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, type McpStatus, type ServerConfig, type ServerView } from "../api";
+import { GoogleSection } from "./GoogleSection";
 import { ModelSection } from "./ModelSection";
 import { ServerForm } from "./ServerForm";
 import "./assistant.css";
@@ -79,6 +80,8 @@ interface Props {
   onClose(): void;
   /** opens on the form that adds a server */
   addServer?: boolean;
+  /** opens with the Google Docs section in view */
+  google?: boolean;
 }
 
 /**
@@ -86,7 +89,7 @@ interface Props {
  * Assistant's model and the user's servers come first, then Serve DocBro, the server external
  * AI clients connect to. Adding or editing a server takes the whole sheet.
  */
-export function McpSettings({ onClose, addServer = false }: Props) {
+export function McpSettings({ onClose, addServer = false, google = false }: Props) {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -201,6 +204,7 @@ export function McpSettings({ onClose, addServer = false }: Props) {
             <>
               <ModelSection />
               <ServersSection servers={servers} notice={serversNotice} onChange={setServers} onEdit={(editing) => setForm({ editing })} />
+              <GoogleSection focus={google} />
               <section className="mcp-section">
                 <div className="mcp-row">
                   <button

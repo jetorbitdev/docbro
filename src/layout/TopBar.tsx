@@ -4,15 +4,17 @@ import { crumbs } from "./outline";
 interface Props {
   path: string | null;
   dirty: boolean;
+  /** shown in place of Saved or Edited while something takes a while */
+  note?: string | null;
   focus: boolean;
   assistantOpen: boolean;
   run(id: string): void;
 }
 
 /** Mock 41–65. The bar is the window's drag region: every part that is not a button carries the attribute, because a drag starts only on the element itself. */
-export function TopBar({ path, dirty, focus, assistantOpen, run }: Props) {
+export function TopBar({ path, dirty, note, focus, assistantOpen, run }: Props) {
   const { folder, name } = crumbs(path);
-  const status = dirty ? "Edited" : path ? "Saved" : "";
+  const status = note || (dirty ? "Edited" : path ? "Saved" : "");
   return (
     <header className={`topbar${IS_MAC ? " mac" : ""}`} data-tauri-drag-region>
       <div className="logo" title="DocBro" data-tauri-drag-region>

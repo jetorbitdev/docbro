@@ -2,6 +2,7 @@ mod assistant;
 mod calls;
 mod claude_code;
 mod files;
+mod google;
 mod mcp;
 mod mcp_client;
 mod servers;
@@ -65,6 +66,8 @@ struct AppState {
     servers: servers::Servers,
     /// The Assistant's settings and the chat of each window
     assistant: assistant::Assistant,
+    /// The Google account documents are uploaded to, and the Google Doc made from each file
+    google: google::Google,
 }
 
 impl AppState {
@@ -78,6 +81,7 @@ impl AppState {
             calls: calls::Calls::default(),
             servers: servers::Servers::load(),
             assistant: assistant::Assistant::load(),
+            google: google::Google::load(),
         }
     }
 
@@ -380,6 +384,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&item("save", "Save", "CmdOrCtrl+S")?)
         .item(&item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?)
         .separator()
+        .item(&MenuItemBuilder::with_id("google_docs", "Upload to Google Docs").build(app)?)
+        .separator()
         .item(&item("print", "Print…", "CmdOrCtrl+P")?)
         .separator()
         .close_window()
@@ -556,6 +562,14 @@ pub fn run() {
             claude_code::claude_sessions,
             claude_code::assistant_continue,
             claude_code::assistant_teleport,
+            google::google_status,
+            google::google_save_client,
+            google::google_connect,
+            google::google_cancel,
+            google::google_disconnect,
+            google::google_upload,
+            google::google_open,
+            google::google_open_console,
         ])
         .build(tauri::generate_context!())
         .expect("error while building DocBro");
@@ -564,6 +578,7 @@ pub fn run() {
         // no `claude` outlives DocBro, nor the MCP servers it started
         if let tauri::RunEvent::Exit = &event {
             claude_code::stop_all();
+            handle.state::<AppState>().google.cancel_sign_in();
         }
         if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             if hold_quit_for_unsaved_changes(handle) {

@@ -23,7 +23,7 @@ export interface Command {
 }
 
 type ActionKey =
-  | "newWindow" | "open" | "save" | "saveAs" | "print" | "find" | "replace" | "palette" | "insertImage"
+  | "newWindow" | "open" | "save" | "saveAs" | "uploadGoogle" | "print" | "find" | "replace" | "palette" | "insertImage"
   | "insertLink" | "pickColor" | "pickFont" | "addComment" | "toggleHeader" | "toggleFooter" | "togglePageNumbers";
 
 export interface CommandHost {
@@ -39,7 +39,7 @@ export interface CommandHost {
 
 /** Every command id, shared with the native menu (src-tauri/src/lib.rs) and its `menu` event. */
 export const COMMAND_IDS: string[] = [
-  "new", "open", "save", "save_as", "print",
+  "new", "open", "save", "save_as", "google_docs", "print",
   "undo", "redo", "clear_format", "find", "replace", "select_all",
   "focus", "outline", "comments", "assistant", "dark_mode", "larger_text", "sans_font", "palette",
   "table", "image", "link", "divider", "page_break", "comment", "header", "footer", "page_numbers",
@@ -71,6 +71,7 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("open", "File", "↥", "Open…", "⌘O", actions.open),
     cmd("save", "File", "↓", "Save", "⌘S", actions.save),
     cmd("save_as", "File", "⇣", "Save as…", "⇧⌘S", actions.saveAs),
+    cmd("google_docs", "File", "☁", "Upload to Google Docs", "", actions.uploadGoogle),
     cmd("print", "File", "⎙", "Print…", "⌘P", actions.print),
 
     cmd("undo", "Edit", "↶", "Undo", "⌘Z", edit((c) => c.undo())),

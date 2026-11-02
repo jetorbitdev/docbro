@@ -1,4 +1,4 @@
-import { message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { ask, message, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
 import { api } from "./api";
 import type { CommandHost } from "./commands";
@@ -14,6 +14,8 @@ type Filter = { name: string; extensions: string[] };
 export interface Shell {
   /** Shows `text` with three buttons and resolves with the label of the one pressed. */
   choose(text: string, opts: { title: string; buttons: { yes: string; no: string; cancel: string } }): Promise<string>;
+  /** Shows `text` with two buttons and resolves with true when `ok` was pressed. */
+  confirm(text: string, opts: { title: string; ok: string; cancel: string }): Promise<boolean>;
   showError(e: unknown): void;
   pickOpen(): Promise<string[] | null>;
   pickSave(defaultPath: string, filters: Filter[]): Promise<string | null>;
@@ -22,6 +24,7 @@ export interface Shell {
 
 export const tauriShell: Shell = {
   choose: (text, { title, buttons }) => message(text, { title, kind: "warning", buttons }),
+  confirm: (text, { title, ok, cancel }) => ask(text, { title, kind: "info", okLabel: ok, cancelLabel: cancel }),
   showError: (e) => void message(e instanceof Error ? e.message : String(e), { title: "DocBro", kind: "error" }),
   pickOpen: () => openDialog({ multiple: true, filters: [{ name: "Documents", extensions: ["docx", "md", "markdown"] }] }),
   pickSave: (defaultPath, filters) => saveDialog({ defaultPath, filters }),
@@ -102,6 +105,42 @@ export async function saveAs(shell: Shell, session: DocSession): Promise<void> {
 export const saveDocument = (shell: Shell, session: DocSession) =>
   session.path ? saveTo(shell, session, null) : saveAs(shell, session);
 
+// ------------------------------------------------------------------ Google Docs
+
+/** What the upload needs from Rust, so tests can answer for Google. */
+export type GoogleApi = Pick<typeof api, "googleStatus" | "googleUpload" | "googleOpen">;
+
+/**
+ * Puts the document as it is now, saved or not, in Google Docs, then offers to show it. Without a
+ * connected account it opens the Google Docs settings instead, or says where they are.
+ */
+export async function uploadToGoogleDocs(
+  shell: Shell,
+  session: DocSession,
+  google: GoogleApi,
+  opts: { openSettings?: () => void; onBusy?: (busy: boolean) => void } = {},
+): Promise<void> {
+  if (!(await google.googleStatus()).connected) {
+    if (opts.openSettings) return opts.openSettings();
+    throw new Error("Connect your Google account under Google Docs in MCP settings first.");
+  }
+  const title = session.name.replace(/\.(docx|md|markdown)$/i, "");
+  opts.onBusy?.(true);
+  let done;
+  try {
+    done = await google.googleUpload(await session.docx(), session.path, title);
+  } finally {
+    opts.onBusy?.(false);
+  }
+  const text = !done.created
+    ? `The Google Doc "${title}" now has this document's content.`
+    : session.path
+      ? `"${title}" is now a Google Doc in your Drive. Uploading this file again updates the same Google Doc.`
+      : `"${title}" is now a Google Doc in your Drive. Save this document to a file to update the same Google Doc next time.`;
+  const open = await shell.confirm(text, { title: "Uploaded to Google Docs", ok: "Open in browser", cancel: "Done" });
+  if (open) await google.googleOpen(done.file_id);
+}
+
 // ------------------------------------------------------------------ one at a time
 
 // One file command at a time, so a shortcut that reaches the window twice opens one dialog, not two.
@@ -152,18 +191,27 @@ export interface ActionDeps {
   openZone?(kind: "header" | "footer"): void;
   /** Who a new comment is by; without it there is no Comment action. */
   commentAuthor?: string;
+  /** Opens the Google Docs settings, for an upload with no account connected. */
+  openGoogleSettings?(): void;
+  /** Told when an upload to Google Docs starts and ends. */
+  onUploading?(busy: boolean): void;
   shell?: Shell;
+  google?: GoogleApi;
 }
 
 /** The actions behind the commands that need more than the editor. */
 export function buildActions(deps: ActionDeps): CommandHost["actions"] {
-  const { editor, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor, shell = tauriShell } = deps;
+  const { editor, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor, shell = tauriShell, google = api } = deps;
   return {
     newWindow: () => void shell.openInWindow(null).catch(shell.showError),
     open: () => void runExclusive(shell, () => pickAndOpen(shell, session)),
     save: () => void runExclusive(shell, () => saveDocument(shell, session)),
     saveAs: () => void runExclusive(shell, () => saveAs(shell, session)),
     print: () => window.print(),
+    uploadGoogle: () =>
+      void runExclusive(shell, () =>
+        uploadToGoogleDocs(shell, session, google, { openSettings: deps.openGoogleSettings, onBusy: deps.onUploading }),
+      ),
     palette: openPalette,
     insertImage: () => void pickImage(editor),
     // a header or footer kept from the file counts as on, and the item takes it away

@@ -101,6 +101,15 @@
 .server-item{display:flex;flex-direction:column}
 .server-item .mcp-row-text{flex:1}
 .server-item .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.google-section .mcp-row-text{flex:1}
+.google-client-toggle{margin:10px 0 0;flex:none}
+.google-client{margin-top:14px}
+.google-client-toggle+.google-client{margin-top:10px}
+.engine-form.google-client>.mcp-note{margin:0 0 0 84px;line-height:1.5}
+.google-client .server-actions{padding-top:12px}
+.text-link{padding:0;border:0;background:none;font:inherit;color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.text-link:hover{text-decoration-thickness:2px}
+.google-client-toggle .sub{font-size:12.5px;color:var(--muted)}
 .server-tested{padding:8px 10px 0;font-size:12.5px;line-height:1.45;color:var(--accent-ink);overflow-wrap:anywhere}
 .server-form{display:flex;flex-direction:column;padding:4px 4px 0}
 .server-form-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}

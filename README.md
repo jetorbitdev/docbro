@@ -13,7 +13,7 @@
   <img src="docs/media/demo.gif" alt="Asking the Assistant to add a risks table: it reads the document, inserts the table, and the edit shows up live on the page">
 </p>
 
-DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It also runs an MCP server, so Claude, Cursor, Codex and other AI tools can read and edit the document you have open. Every edit shows up on the page as it happens, and **each AI edit is a single undo step**, so ⌘Z takes back exactly what the AI did, never your own typing.
+DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It also runs an MCP server, so Claude, Cursor, Codex and other AI tools can read and edit the document you have open. Every edit shows up on the page as it happens, and **each AI edit is a single undo step**, so ⌘Z takes back exactly what the AI did, never your own typing. When a document is ready to share, **File ▸ Upload to Google Docs** puts it in your Google Drive as a Google Doc.
 
 <p align="center">
   <a href="docs/media/docbro-teaser.mp4">
@@ -22,6 +22,32 @@ DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It
   <br>
   <sub><a href="docs/media/docbro-teaser.mp4">Watch the 43-second teaser</a></sub>
 </p>
+
+## Contents
+
+- [Download](#download)
+- [Features](#features)
+  - [What DocBro keeps from Word files](#what-docbro-keeps-from-word-files)
+- [Screenshots](#screenshots)
+- [Connect your AI tools](#connect-your-ai-tools)
+  - [Available tools](#available-tools)
+- [Google Docs](#google-docs)
+- [The Assistant](#the-assistant)
+  - [Chatting](#chatting)
+  - [Continue a Claude Code session](#continue-a-claude-code-session)
+  - [Adding MCP servers](#adding-mcp-servers)
+  - [What leaves your computer](#what-leaves-your-computer)
+- [Security](#security)
+- [Build from source](#build-from-source)
+  - [macOS](#macos)
+  - [Windows](#windows)
+  - [Linux](#linux)
+  - [Building with GitHub Actions](#building-with-github-actions)
+  - [Build it with an AI agent (no coding needed)](#build-it-with-an-ai-agent-no-coding-needed)
+- [How it works](#how-it-works)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Download
 
@@ -47,6 +73,12 @@ The `.dmg` is built on a Mac and attached to the release by hand. If a release h
 - Pages laid out as sheets, with page breaks, headers, footers and page numbers
 - Headings, lists, tables, images, links, quotes, dividers, text color, highlight, alignment and comments
 - One document per window
+
+**Google Docs**
+
+- Upload the open document to your Google Drive as a Google Doc, saved or not, from File ▸ Upload to Google Docs
+- Uploading the same file again updates that Google Doc, so its link and its sharing stay the same
+- DocBro reaches only the files it uploaded, nothing else in your Drive. See [Google Docs](#google-docs).
 
 **Editing**
 
@@ -160,6 +192,19 @@ Notes for people writing prompts or building clients:
 - **Colors** are `#rrggbb`. A link must be `http`, `https` or `mailto`.
 - **Pictures.** The Markdown tools can't embed a picture. An image link such as `![chart](https://example.com/chart.png)` is kept in the document as a link and drawn as its alt text and address. DocBro never loads it.
 
+## Google Docs
+
+**File ▸ Upload to Google Docs** puts the open document in your Google Drive as a Google Doc, as it is in the window, saved or not. A `.md` file goes up the same way as a `.docx`. Uploading the same file again replaces the Google Doc's content, so its link and its sharing stay the same. If that Google Doc was deleted or put in the trash, a new one is made. A document that has no file yet makes a new Google Doc each time. The upload only goes one way: changes made in Google Docs don't come back into DocBro.
+
+DocBro asks Google only for access to the files it uploads itself (the `drive.file` scope). It can't see or change anything else in your Drive.
+
+To set it up, open **MCP settings** and find **Google Docs**:
+
+1. If your copy of DocBro doesn't come with an OAuth client, make one. In [Google Cloud Console](https://console.cloud.google.com), create a project, turn on the **Google Drive API**, set up the OAuth consent screen (add yourself as a test user while the app is in testing), and create an **OAuth client ID** of type **Desktop app**. Paste its client ID and client secret into DocBro and press **Save**.
+2. Press **Connect**. Google's sign-in page opens in your browser. Once you agree, the browser sends the answer back to DocBro, and the settings show the account you connected.
+
+**Disconnect** forgets the account on this computer and asks Google to end DocBro's access.
+
 ## The Assistant
 
 The Assistant answers through one of three engines. Pick one in **MCP settings**, under **Model**. Saving is what switches to it.
@@ -198,7 +243,9 @@ Each server has a switch in the Assistant panel, next to DocBro's own document t
 
 DocBro itself sends nothing anywhere: no telemetry and no update check. It also never loads a picture from the web. A picture that is linked by address, in a Markdown file or in text an AI inserts, shows as its alt text and its address until you replace it, and a Markdown save writes the same link back. Only pictures inside the document (or made by the page) are drawn.
 
-Only the Assistant makes outgoing connections, and only when:
+Uploading to Google Docs connects to Google, and only when you connect an account, upload, or disconnect. An upload sends the whole document, as a Word file, to Google Drive.
+
+Apart from that, only the Assistant makes outgoing connections, and only when:
 
 - you send a message;
 - you load a provider's models;
@@ -223,13 +270,15 @@ With every engine, the arguments the model picks for a tool of one of your MCP s
   | `mcp.json` | Whether Serve DocBro is on, its port, and its access token |
   | `assistant.json` | The engine, the models, your Anthropic API key, and the other provider's base URL and key |
   | `servers.json` | The MCP servers you added, with their header and environment values |
+  | `google.json` | Your own Google OAuth client and its secret, the connected Google account and its refresh token, and which Google Doc each file was uploaded to |
 
-  On macOS and Linux these files are readable only by you (mode `0600`), and DocBro makes `assistant.json` and `servers.json` private again if something loosened them. Keys, tokens and header values are stored in them as plain text: there is no OS keychain in this version. On Windows the files sit in your AppData folder and DocBro doesn't change their permissions.
+  On macOS and Linux these files are readable only by you (mode `0600`), and DocBro makes `assistant.json`, `servers.json` and `google.json` private again if something loosened them. Keys, tokens and header values are stored in them as plain text: there is no OS keychain in this version. On Windows the files sit in your AppData folder and DocBro doesn't change their permissions.
 - **The MCP server.** Serve DocBro is off by default. When it is on, it listens on `127.0.0.1` only and answers `POST /mcp` only. Every request needs the bearer token, and a request with an `Origin` header, or with a `Host` that isn't the server's own address, is refused, which keeps web pages from driving the document. A request body over 8 MiB is refused. Regenerating the token in MCP settings locks out every client that still has the old one. Treat the token like a password: a client that has it can read and edit the open document, and open and save `.docx` and `.md` files your user account can reach.
 - **API keys.** The Anthropic key and the other provider's key stay in the Rust core. The window only learns the last four characters of a key, and a key is never logged or put in an error message, even when a service repeats it back. (The MCP access token is different: MCP settings shows it, so you can copy it into your client.)
 - **A saved key only goes to the server it was saved for.** The Anthropic key goes to `api.anthropic.com` and nowhere else. The other provider's key goes only to the origin (scheme, host and port) of the base URL it was saved with: change the host and DocBro drops the saved key, and you enter it again. The same goes for the header and environment values of an MCP server: point its URL at another host, or change its command, and the saved values aren't carried over. Redirects aren't followed, so a key can't be passed on to another host. A provider's base URL can be plain `http://` only for this computer, but an MCP server's URL can be any `http://` or `https://` address, so use `https://` for anything that isn't on this computer.
 - **Command servers.** Adding or testing an MCP server of type Command shows the exact command line and waits for your confirm. It then runs only while the server is switched on, with your user account's permissions, so only add programs you trust.
 - **Claude Code.** DocBro starts `claude` with its built-in tools off (no Bash, Edit or Read), without your Claude Code hooks, skills and settings, and with only the MCP servers DocBro gives it. Your message, and the text you add with **+ Selection**, go on its standard input. The document's name and its outline headings are part of the instructions DocBro gives it on its command line, where another process of the same user can read them (with `ps`, for example). The MCP servers' header and environment values go in a temporary file that only you can read (on macOS and Linux), which is deleted when the answer ends. DocBro's document tools reach `claude` through a listener on `127.0.0.1`, on a port the system picks, that exists only while a Claude Code answer is running. It takes a token made for that run and never saved, and it works whether or not Serve DocBro is on. Your own access token gets nothing there. On macOS and Linux, when DocBro quits it tells any `claude` it started to stop.
+- **Google Docs.** Signing in happens in your browser, on Google's own page, so DocBro never sees your Google password. The browser hands the answer back to a listener on `127.0.0.1` that exists only while a sign-in waits, and the sign-in uses PKCE, so another program that catches the answer can't use it. The refresh token, the access token and the OAuth client's secret stay in the Rust core: the window only learns the secret's last four characters and never a token. They go only to Google's sign-in and Drive addresses, redirects aren't followed, and none of them is put in an error message. A token works only with the OAuth client it was given to, so saving another client disconnects the account.
 - **Undo.** Every AI edit, from an external client or from the Assistant, goes into the normal undo history as one step.
 
 ## Build from source
@@ -241,6 +290,8 @@ pnpm install
 pnpm tauri dev      # run the app with hot reload
 pnpm tauri build    # build the .app and .dmg on macOS (Windows and Linux: see below)
 ```
+
+To build a copy that comes with a Google OAuth client, so its users only have to press Connect, set `DOCBRO_GOOGLE_CLIENT_ID` and `DOCBRO_GOOGLE_CLIENT_SECRET` in the environment of `pnpm tauri build`. A client entered in MCP settings takes its place.
 
 To run the tests:
 
@@ -425,13 +476,13 @@ DocBro is a [Tauri 2](https://tauri.app) app. The Rust core owns the windows, me
 
 ```
 src/            React + TypeScript UI, the editor, .docx/.md conversion, MCP tool handlers
-  layout/       the window: menus, page, side panels, Assistant panel, MCP settings
+  layout/       the window: menus, page, side panels, Assistant panel, MCP and Google Docs settings
   editor/       the TipTap schema and its extensions
   formats/      .docx import and export, Markdown conversion
   doc/          the open document's session, comments, headers and footers
   mcp/          the document tools that MCP clients and the Assistant call
   commands.ts   the one list of commands that every menu, the palette and the native menu run
-src-tauri/      Rust core: windows, files, MCP server and client, Assistant
+src-tauri/      Rust core: windows, files, MCP server and client, Assistant, Google Docs
   src/lib.rs          app setup, windows, menus, file commands
   src/mcp.rs          the MCP server (HTTP and the --mcp-stdio bridge)
   src/mcp_client.rs   MCP client for the Assistant's servers (HTTP and stdio)
@@ -439,6 +490,7 @@ src-tauri/      Rust core: windows, files, MCP server and client, Assistant
   src/assistant.rs    settings, the chat loop and the Anthropic API
   src/assistant/      the OpenAI-compatible engine
   src/claude_code.rs  the Claude Code engine and its session list
+  src/google.rs       Google sign-in and the upload to Google Docs
 video/          The Remotion project that renders the teaser
 docs/           Design notes and plans
 ```

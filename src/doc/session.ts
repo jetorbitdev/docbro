@@ -191,6 +191,11 @@ export class DocSession {
     return target;
   }
 
+  /** The document as it is now, as a Word file, whatever format its own file has. */
+  docx(): Promise<Uint8Array> {
+    return writeDocument("document.docx", this.editor.getJSON(), structuredClone(this._meta));
+  }
+
   /** Takes the document as it is now for the saved one, when something else wrote it out. */
   markSaved(): void {
     this.capture(this.editor.state.doc, this._meta);

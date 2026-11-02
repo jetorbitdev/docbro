@@ -8,8 +8,11 @@ import {
   runExclusive,
   saveAs,
   saveDocument,
+  uploadToGoogleDocs,
+  type GoogleApi,
   type Shell,
 } from "./actions";
+import type { GoogleStatus } from "./api";
 import { buildCommands } from "./commands";
 import { DocSession, type SessionIO } from "./doc/session";
 import { createHeadlessEditor } from "./editor/headless";
@@ -50,6 +53,7 @@ function latch() {
 function fakeShell(patch: Partial<Shell> = {}) {
   return {
     choose: vi.fn(async () => "Cancel"),
+    confirm: vi.fn(async () => false),
     showError: vi.fn(),
     pickOpen: vi.fn(async () => null),
     pickSave: vi.fn(async () => null),
@@ -264,7 +268,7 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   const ui = {} as UiState;
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette, shell });
   expect(Object.keys(actions).sort()).toEqual(
-    ["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs", "toggleFooter", "toggleHeader", "togglePageNumbers"],
+    ["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs", "toggleFooter", "toggleHeader", "togglePageNumbers", "uploadGoogle"],
   );
   actions.palette!();
   expect(openPalette).toHaveBeenCalledOnce();
@@ -283,7 +287,7 @@ test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
   expect(Object.keys(actions).sort()).toEqual(
     [
       "insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs",
-      "toggleFooter", "toggleHeader", "togglePageNumbers",
+      "toggleFooter", "toggleHeader", "togglePageNumbers", "uploadGoogle",
     ],
   );
   actions.insertImage!();
@@ -401,4 +405,77 @@ test("switching_on_a_header_or_footer_from_the_menu_opens_it_for_typing", () => 
   expect(openZone).toHaveBeenLastCalledWith("footer");
   actions.toggleHeader!(); // switching off opens nothing
   expect(openZone).toHaveBeenCalledTimes(2);
+});
+
+// ------------------------------------------------------------------ Google Docs
+
+/** Google as Rust answers for it: connected or not, and the Google Doc an upload made or updated. */
+function fakeGoogle(connected: boolean, created = true) {
+  const status: GoogleStatus = {
+    client_id: "1-a.apps.googleusercontent.com", custom_client: true, built_in: false, secret_hint: "abcd",
+    connected, email: connected ? "rina@example.com" : null, signing_in: false,
+  };
+  return {
+    googleStatus: vi.fn(async () => status),
+    googleUpload: vi.fn(async (_docx: Uint8Array, _path: string | null, _title: string) => ({
+      file_id: "1AbCdEfGhIjKl", url: "https://docs.google.com/document/d/1AbCdEfGhIjKl/edit", created,
+    })),
+    googleOpen: vi.fn(async (_id: string) => {}),
+  } satisfies GoogleApi;
+}
+
+test("uploading_with_no_google_account_opens_the_google_docs_settings_and_sends_nothing", async () => {
+  const google = fakeGoogle(false);
+  const openSettings = vi.fn();
+  await uploadToGoogleDocs(fakeShell(), session, google, { openSettings });
+  expect(openSettings).toHaveBeenCalledOnce();
+  expect(google.googleUpload).not.toHaveBeenCalled();
+  // with no settings to open, it says where they are
+  await expect(uploadToGoogleDocs(fakeShell(), session, google)).rejects.toThrow("MCP settings");
+});
+
+test("an_upload_sends_the_unsaved_document_as_a_word_file_named_after_its_file", async () => {
+  io.files.set("/d/Plan.md", new TextEncoder().encode("# Plan"));
+  await session.open("/d/Plan.md");
+  editor.commands.insertContent("Draft ");
+  const google = fakeGoogle(true);
+  const busy: boolean[] = [];
+  const shell = fakeShell({ confirm: vi.fn(async () => true) });
+  await uploadToGoogleDocs(shell, session, google, { onBusy: (b) => busy.push(b) });
+
+  const [docx, path, title] = google.googleUpload.mock.calls[0];
+  // a .docx is a zip: it starts with PK
+  expect([...docx.slice(0, 2)]).toEqual([0x50, 0x4b]);
+  expect([path, title]).toEqual(["/d/Plan.md", "Plan"]);
+  expect(busy).toEqual([true, false]);
+  // the upload saves nothing
+  expect(session.dirty).toBe(true);
+  expect(shell.confirm).toHaveBeenCalledWith(expect.stringContaining("updates the same Google Doc"), expect.objectContaining({ ok: "Open in browser" }));
+  expect(google.googleOpen).toHaveBeenCalledWith("1AbCdEfGhIjKl");
+});
+
+test("an_upload_says_whether_it_made_or_updated_the_google_doc_and_opens_it_only_when_asked", async () => {
+  const shell = fakeShell();
+  const google = fakeGoogle(true, false);
+  await uploadToGoogleDocs(shell, session, google);
+  expect(google.googleUpload.mock.calls[0].slice(1)).toEqual([null, "Untitled"]);
+  expect(shell.confirm).toHaveBeenCalledWith('The Google Doc "Untitled" now has this document\'s content.', expect.anything());
+  expect(google.googleOpen).not.toHaveBeenCalled();
+
+  const made = fakeGoogle(true, true);
+  await uploadToGoogleDocs(shell, session, made);
+  expect(shell.confirm).toHaveBeenLastCalledWith(expect.stringContaining("Save this document to a file"), expect.anything());
+});
+
+test("a_failed_upload_ends_the_busy_state_and_shows_why", async () => {
+  const google = fakeGoogle(true);
+  google.googleUpload.mockRejectedValueOnce(new Error("Your Google Drive is full."));
+  const busy: boolean[] = [];
+  const shell = fakeShell();
+  const actions = buildActions({
+    editor, session, ui: {} as UiState, setUi: () => {}, openPalette: () => {}, shell, google, onUploading: (b) => busy.push(b),
+  });
+  actions.uploadGoogle!();
+  await vi.waitFor(() => expect(shell.showError).toHaveBeenCalledWith(new Error("Your Google Drive is full.")));
+  expect(busy).toEqual([true, false]);
 });

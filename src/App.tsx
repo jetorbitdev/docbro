@@ -83,6 +83,10 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // MCP settings opened from "+ Add MCP server" start on the form that adds one
   const [addServer, setAddServer] = useState(false);
+  // the settings sheet opens with Google Docs in view
+  const [googleSettings, setGoogleSettings] = useState(false);
+  // an upload to Google Docs is under way
+  const [uploading, setUploading] = useState(false);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [paper, setPaper] = useState<HTMLDivElement | null>(null);
   // Where the pages break, reported by the page layout (editor/pagination.ts) once the text is laid out.
@@ -156,6 +160,12 @@ export default function App() {
   }, [editor]);
   const openSettings = useCallback((add = false) => {
     setAddServer(add);
+    setGoogleSettings(false);
+    setSettingsOpen(true);
+  }, []);
+  const openGoogleSettings = useCallback(() => {
+    setAddServer(false);
+    setGoogleSettings(true);
     setSettingsOpen(true);
   }, []);
   const closeSettings = useCallback(() => {
@@ -249,9 +259,12 @@ export default function App() {
   const actions = useMemo(
     () =>
       session
-        ? buildActions({ editor: target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor: userName })
+        ? buildActions({
+            editor: target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, commentAuthor: userName,
+            openGoogleSettings, onUploading: setUploading,
+          })
         : {},
-    [target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, userName],
+    [target, session, ui, setUi, openPalette, openLink, openColor, openFont, openFind, openZone, userName, openGoogleSettings],
   );
   const commands: Command[] = session ? buildCommands({ editor: target, zoneEditing: !!zoneEditor, session, ui, setUi, actions }) : [];
   // Listeners registered once run the commands as they are now.
@@ -327,7 +340,7 @@ export default function App() {
 
   return (
     <div className={`app${resizing ? " snap" : ""}`} data-font={ui.sansFont ? "sans" : undefined}>
-      <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen && !ui.focus} run={run} />
+      <TopBar path={doc.path} dirty={doc.dirty} note={uploading ? "Uploading to Google Docs…" : null} focus={ui.focus} assistantOpen={ui.assistantOpen && !ui.focus} run={run} />
       <MenuBar commands={commands} visible={layout.showMenuBar} editor={target} look={session?.meta.look} />
       {findRequest && <FindBar editor={editor} request={findRequest} onClose={closeFind} />}
       <div className="workspace">
@@ -401,7 +414,7 @@ export default function App() {
         </aside>
       </div>
       {paletteOpen && <CommandPalette commands={commands} onClose={closePalette} />}
-      {settingsOpen && <McpSettings onClose={closeSettings} addServer={addServer} />}
+      {settingsOpen && <McpSettings onClose={closeSettings} addServer={addServer} google={googleSettings} />}
     </div>
   );
 }
