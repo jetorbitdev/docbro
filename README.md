@@ -156,6 +156,7 @@ Notes for people writing prompts or building clients:
 - **Which window.** A call from an AI client runs in the window you used last. If it sends an argument a tool doesn't take, the call is refused, not ignored.
 - **Unsaved work.** Edits live in the open window until `save_document` runs. `document_info` carries the unsaved-changes flag, so a client can remind you to save.
 - **Colors** are `#rrggbb`. A link must be `http`, `https` or `mailto`.
+- **Pictures.** The Markdown tools can't embed a picture. An image link such as `![chart](https://example.com/chart.png)` is kept in the document as a link and drawn as its alt text and address. DocBro never loads it.
 
 ## The Assistant
 
@@ -193,7 +194,15 @@ Each server has a switch in the Assistant panel, next to DocBro's own document t
 
 ### What leaves your computer
 
-DocBro itself sends nothing anywhere: no telemetry and no update check. Only the Assistant makes outgoing connections, and only when you send a message, load a provider's models, or switch on or test an HTTP server you added.
+DocBro itself sends nothing anywhere: no telemetry and no update check. It also never loads a picture from the web. A picture that is linked by address, in a Markdown file or in text an AI inserts, shows as its alt text and its address until you replace it, and a Markdown save writes the same link back. Only pictures inside the document (or made by the page) are drawn.
+
+Only the Assistant makes outgoing connections, and only when:
+
+- you send a message;
+- you load a provider's models;
+- you switch on or test an HTTP server you added, or save one that is already switched on. Saving a Command server that is already on starts it the same way.
+
+Requests to a provider that isn't on this computer go through your system proxy (`HTTP_PROXY` and the like), and requests to OpenRouter carry an `X-Title: DocBro` header.
 
 A message carries your text, the text you added with **+ Selection**, the document's name and its outline (the headings, while DocBro's document tools are on), and the names and descriptions of the tools on offer. As the model uses tools, their results go back to it, including any document text it reads and anything your MCP servers answer. Where all of that goes depends on the engine:
 
@@ -218,7 +227,7 @@ With every engine, the arguments the model picks for a tool of one of your MCP s
 - **API keys.** The Anthropic key and the other provider's key stay in the Rust core. The window only learns the last four characters of a key, and a key is never logged or put in an error message, even when a service repeats it back. (The MCP access token is different: MCP settings shows it, so you can copy it into your client.)
 - **A saved key only goes to the server it was saved for.** The Anthropic key goes to `api.anthropic.com` and nowhere else. The other provider's key goes only to the origin (scheme, host and port) of the base URL it was saved with: change the host and DocBro drops the saved key, and you enter it again. The same goes for the header and environment values of an MCP server: point its URL at another host, or change its command, and the saved values aren't carried over. Redirects aren't followed, so a key can't be passed on to another host. A provider's base URL can be plain `http://` only for this computer, but an MCP server's URL can be any `http://` or `https://` address, so use `https://` for anything that isn't on this computer.
 - **Command servers.** Adding or testing an MCP server of type Command shows the exact command line and waits for your confirm. It then runs only while the server is switched on, with your user account's permissions, so only add programs you trust.
-- **Claude Code.** DocBro starts `claude` with its built-in tools off (no Bash, Edit or Read), without your Claude Code hooks, skills and settings, and with only the MCP servers DocBro gives it. Your message goes on its standard input, not its command line. The MCP servers' header and environment values go in a temporary file that only you can read (on macOS and Linux), which is deleted when the answer ends. DocBro's document tools reach `claude` through a listener on `127.0.0.1`, on a port the system picks, that exists only while a Claude Code answer is running. It takes a token made for that run and never saved, and it works whether or not Serve DocBro is on. Your own access token gets nothing there. When DocBro quits, it stops any `claude` it started.
+- **Claude Code.** DocBro starts `claude` with its built-in tools off (no Bash, Edit or Read), without your Claude Code hooks, skills and settings, and with only the MCP servers DocBro gives it. Your message, and the text you add with **+ Selection**, go on its standard input. The document's name and its outline headings are part of the instructions DocBro gives it on its command line, where another process of the same user can read them (with `ps`, for example). The MCP servers' header and environment values go in a temporary file that only you can read (on macOS and Linux), which is deleted when the answer ends. DocBro's document tools reach `claude` through a listener on `127.0.0.1`, on a port the system picks, that exists only while a Claude Code answer is running. It takes a token made for that run and never saved, and it works whether or not Serve DocBro is on. Your own access token gets nothing there. On macOS and Linux, when DocBro quits it tells any `claude` it started to stop.
 - **Undo.** Every AI edit, from an external client or from the Assistant, goes into the normal undo history as one step.
 
 ## Build from source

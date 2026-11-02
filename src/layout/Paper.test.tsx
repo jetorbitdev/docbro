@@ -72,6 +72,14 @@ test("a_kept_part_is_drawn_from_its_blocks_with_the_alignment_picture_and_rule_i
   expect(top.querySelector("hr")).not.toBeNull();
 });
 
+test("a_kept_header_never_loads_a_picture_from_the_web", () => {
+  const remote = "https://tracker.example/logo.png?d=secret";
+  show(LAYOUT, { headerView: kept({ type: "image", attrs: { src: remote, alt: "Logo" } }, para("PT Jetorbit")) });
+  expect(host.querySelectorAll(".hf-rich img")).toHaveLength(0);
+  expect(host.querySelectorAll("[src]")).toHaveLength(0);
+  expect([...host.querySelectorAll(".hf-sheet-top .remote-image-src")].map((e) => e.textContent)).toEqual([remote, remote, remote]);
+});
+
 test("the_page_also_holds_a_copy_in_the_text_flow_for_measuring_and_for_print", () => {
   show(LAYOUT, { headerView: HEADER, footerView: FOOTER });
   expect(texts(".hf-flow.hf-flow-top")).toEqual(["PT Jetorbit"]);

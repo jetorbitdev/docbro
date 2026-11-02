@@ -252,15 +252,15 @@ async function images(zip: JSZip, body: Element, relations: Map<string, Relation
 
 const near = (value: string | null, target: number) => value === null || Math.abs(Number(value) - target) <= 20;
 
-// Letter or A4, portrait, 1in margins, one column: what DocBro writes back.
+// Letter or A4, portrait, one column, no gutter: the page setup DocBro writes back. The margins are not part of it:
+// the file's own are kept (`lookOf` reads them and `exportDocx` writes them).
 function customPage(sectPr: Element): boolean {
   const size = first(sectPr, "w:pgSz");
   const margin = first(sectPr, "w:pgMar");
   const paper = Object.values(PAPER).some(({ width, height }) => near(attr(size, "w:w"), width) && near(attr(size, "w:h"), height));
-  const margins = ["w:top", "w:right", "w:bottom", "w:left"].every((side) => near(attr(margin, side), 1440));
   const gutter = Number(attr(margin, "w:gutter") ?? 0) > 0;
   const columns = Number(attr(first(sectPr, "w:cols"), "w:num") ?? 1) > 1;
-  return !paper || !margins || gutter || columns;
+  return !paper || gutter || columns;
 }
 
 const TRACKED = [

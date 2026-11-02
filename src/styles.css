@@ -151,6 +151,10 @@ button,textarea{font-family:inherit}
 .doc img[data-cover]{display:block;max-width:none;width:calc(100% + 2*var(--pad-x));height:var(--page-h,auto);margin:calc(-1*var(--pad-y)) calc(-1*var(--pad-x)) 0;border-radius:6px}
 /* the text is zoomed, the sheet is not: the cover undoes the zoom so it is the sheet's size on screen */
 .doc.large img[data-cover]{zoom:.8333}
+/* a picture that points at the web is never fetched: its alt text and its address are drawn in its place */
+.remote-image{display:inline-block;max-width:100%;vertical-align:top;padding:6px 10px;border:1px dashed var(--line2);border-radius:6px;background:var(--soft);font-family:var(--font);font-size:12px;line-height:1.4;font-style:normal;font-weight:400;text-align:left;user-select:text}
+.remote-image-alt{display:block;color:var(--ink2)}
+.remote-image-src{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 /* a page break: a labelled dashed line at the foot of the page it ends */
 .doc [data-page-break]{display:flex;align-items:center;gap:10px;height:28px;margin:0;font-family:var(--font);font-size:11px;color:var(--muted);user-select:none}
 .doc [data-page-break]::before,.doc [data-page-break]::after{content:"";flex:1;border-top:1px dashed var(--line2)}

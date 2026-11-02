@@ -56,3 +56,17 @@ test("a_page_break_is_kept_in_markdown_and_read_back", () => {
   expect(md).toContain("data-page-break");
   expect(markdownToDoc(md).content!.map((n) => n.type)).toEqual(["paragraph", "pageBreak", "paragraph"]);
 });
+
+test("a_picture_linked_by_address_keeps_its_link_through_a_round_trip", () => {
+  const md = "![Quarterly chart](https://tracker.example/p.png?d=1 \"Q3\")";
+  const doc = markdownToDoc(md);
+  const image = doc.content!.find((n) => n.type === "image")!;
+  expect(image.attrs).toMatchObject({ src: "https://tracker.example/p.png?d=1", alt: "Quarterly chart", title: "Q3" });
+  expect(docToMarkdown(doc)).toContain(md);
+  // in an editor, where the window would draw it, the node still has the address
+  const editor = createHeadlessEditor(doc);
+  editor.mount(document.createElement("div"));
+  expect(docToMarkdown(editor.getJSON())).toContain(md);
+  expect(editor.view.dom.querySelector("img")).toBeNull();
+  editor.destroy();
+});

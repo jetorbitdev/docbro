@@ -122,7 +122,7 @@ jobs:
           tag="v$(jq -r .version src-tauri/tauri.conf.json)"
 
           # The README changelog heading is "### <tag> — <title>", followed by the
-          # conventional-commit bullets the website's changelog page parses.
+          # conventional-commit bullets ("- feat: ...") that become the release notes.
           heading=$(grep -m1 -E "^### $tag( |$)" README.md || true)
           if [ -z "$heading" ]; then
             echo "::error::README.md has no changelog entry for $tag"

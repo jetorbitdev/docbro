@@ -14,6 +14,7 @@ import { CommentMark } from "./comment";
 import { Field } from "./field";
 import { firstFamily, fontName, fontStack } from "./fonts";
 import { PageBreak } from "./pageBreak";
+import { REMOTE_SRC, loadsInPage, remotePicture } from "./pictureSource";
 
 // Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
 // have turned the default text light. Those colors are dropped as the HTML is read; the rest are kept as they came.
@@ -71,16 +72,40 @@ const CoverImage = Image.extend({
       },
     };
   },
+  // A picture is only drawn from a data or blob URL. One that points at the web is not fetched: it is drawn as its alt
+  // text and its address, and the node keeps the address (pictureSource.ts). Every draw of a picture goes through here:
+  // the editor, a kept header or footer, a copied selection.
+  renderHTML({ node, HTMLAttributes }) {
+    const src = node.attrs.src;
+    if (loadsInPage(src)) return this.parent?.({ node, HTMLAttributes }) ?? ["img", HTMLAttributes];
+    return remotePicture(typeof src === "string" ? src : "", node.attrs.alt);
+  },
+  parseHTML() {
+    const placeholder = {
+      tag: `span[${REMOTE_SRC}]`,
+      getAttrs: (element: HTMLElement | string) => {
+        if (typeof element === "string") return false;
+        const src = element.getAttribute(REMOTE_SRC);
+        return src ? { src, alt: element.getAttribute("data-alt") || null } : false;
+      },
+    };
+    return [...(this.parent?.() ?? []), placeholder];
+  },
 });
 
-// A cell's fill, from the file's cell shading: drawn with the text color that reads on it.
+// A cell's fill, from the file's cell shading: drawn with the text color that reads on it. It is a "#rrggbb" and nothing
+// else, because it goes into a style: pasted HTML must not be able to add `url(...)` there and make the window fetch it.
+const isFill = (value: unknown): value is string => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 const cellBackground = {
   background: {
     default: null,
-    parseHTML: (element: HTMLElement) => element.getAttribute("data-background"),
+    parseHTML: (element: HTMLElement) => {
+      const fill = element.getAttribute("data-background");
+      return isFill(fill) ? fill : null;
+    },
     renderHTML: (attributes: Record<string, unknown>) => {
       const background = attributes.background;
-      if (typeof background !== "string") return {};
+      if (!isFill(background)) return {};
       const ink = inkOn(background);
       return { "data-background": background, style: `background-color: ${background}${ink ? `; color: ${ink}` : ""}` };
     },

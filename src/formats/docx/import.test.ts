@@ -406,11 +406,25 @@ test("reports_footnotes_page_setup_and_equations", async () => {
   expect(await dropped(p(r("a")), { "word/footnotes.xml": footnotes(`${separators}<w:footnote w:id="2"><w:p>${r("catatan")}</w:p></w:footnote>`) }))
     .toEqual(["footnotes"]);
   expect(await dropped(p(r("a")) + section('w:w="15840" w:h="12240" w:orient="landscape"'))).toEqual(["page_setup"]);
-  expect(await dropped(p(r("a")) + section('w:w="12240" w:h="15840"', 'w:top="720" w:right="720" w:bottom="720" w:left="720"'))).toEqual(["page_setup"]);
+  // margins other than one inch are kept, so they are not a loss to report
+  expect(await dropped(p(r("a")) + section('w:w="12240" w:h="15840"', 'w:top="720" w:right="720" w:bottom="720" w:left="720"'))).toEqual([]);
+  expect(await dropped(p(r("a")) + section('w:w="12240" w:h="15840"', undefined, '<w:cols w:num="1"/>').replace('w:gutter="0"', 'w:gutter="360"'))).toEqual(["page_setup"]);
   expect(await dropped(p(r("a")) + section('w:w="12240" w:h="15840"', undefined, '<w:cols w:num="2" w:space="720"/>'))).toEqual(["page_setup"]);
   expect(await dropped(p(r("x = ") + "<m:oMath><m:r><m:t>a+b</m:t></m:r></m:oMath>"))).toEqual(["other_content"]);
   const { doc: result } = await read({ document: p(r("x = ") + "<m:oMath><m:r><m:t>a+b</m:t></m:r></m:oMath>") });
   expect(plainText(result)).toBe("x = ");
+});
+
+test("a_half_inch_margin_is_kept_through_a_save_and_is_not_reported_as_lost", async () => {
+  const half = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="360" w:footer="360" w:gutter="0"/></w:sectPr>';
+  const first = await importDocx(await buildDocx({ document: p(r("a")) + half }));
+  expect(first.dropped).toEqual([]);
+  const margins = { top: 720, right: 720, bottom: 720, left: 720, header: 360, footer: 360 };
+  expect(first.meta.look?.margins).toEqual(margins);
+  // what is saved has the margins, so opening it again finds them and nothing to report
+  const again = await importDocx(await exportDocx(first.doc, first.meta));
+  expect(again.meta.look?.margins).toEqual(margins);
+  expect(again.dropped).toEqual([]);
 });
 
 test("tracked_formatting_changes_are_reported_and_their_old_section_is_not_the_page_setup", async () => {

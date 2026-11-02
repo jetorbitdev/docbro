@@ -105,6 +105,21 @@ test("each_tool_call_is_one_undo_step_and_never_merges_with_typing", async () =>
   expect(text()).toBe("Hello");
 });
 
+test("insert_content_with_a_picture_from_the_web_keeps_the_link_but_the_window_never_fetches_it", async () => {
+  set("Intro");
+  const url = "https://tracker.example/p.png?d=the%20secret";
+  await ok("insert_content", { markdown: `![chart](${url})` });
+  const dom = editor.view.dom;
+  // no <img> and nothing else in the window carries the address as a source
+  expect([...dom.querySelectorAll("img")].map((i) => i.getAttribute("src"))).toEqual([]);
+  expect(dom.querySelectorAll("[src]")).toHaveLength(0);
+  expect(dom.querySelector(".remote-image-alt")!.textContent).toBe("chart");
+  expect(dom.querySelector(".remote-image-src")!.textContent).toBe(url);
+  // the document has it, so the tools and a Markdown save still see the link
+  expect((await ok("read_document")).includes(`![chart](${url})`)).toBe(true);
+  expect(md()).toContain(`![chart](${url})`);
+});
+
 test("insert_replace_delete_address_blocks_and_report_bad_numbers", async () => {
   set("A\n\nB\n\nC");
   expect(await ok("insert_content", { markdown: "X\n\nY", before: 2 })).toBe("Inserted 2 blocks at 2–3.");
