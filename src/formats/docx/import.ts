@@ -30,9 +30,14 @@ const PICTURE = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 const STRICT = "http://purl.oclc.org/ooxml/wordprocessingml/main";
 const SAFE_LINK = /^(https?|mailto|tel|ftp):/i;
 
+// The pictures the .docx writer can put back (export.ts `decodeImage`). A browser could show BMP and WebP too, but
+// saving would turn them into their alt text, so they are reported like any other content DocBro cannot keep.
 const MIME: Record<string, string> = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg", gif: "image/gif", bmp: "image/bmp", webp: "image/webp",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg", gif: "image/gif",
 };
+// A kept header or footer is written back from its own files, so there BMP and WebP are shown; editing the part
+// would write them as alt text, which its `editLoses` says.
+const SHOWN: Record<string, string> = { ...MIME, bmp: "image/bmp", webp: "image/webp" };
 const ALIGN: Record<string, string> = {
   left: "left", start: "left", center: "center", right: "right", end: "right",
   both: "justify", distribute: "justify", lowKashida: "justify", mediumKashida: "justify", highKashida: "justify", thaiDistribute: "justify",
@@ -61,7 +66,7 @@ interface Context {
   nums: Map<string, Element>;
   abstracts: Map<string, Element>;
   links: Map<string, string>; // relationship id -> safe external URL
-  images: Map<string, string | null>; // relationship id -> data URL, or null for a format a browser cannot show
+  images: Map<string, string | null>; // relationship id -> data URL, or null for a format DocBro cannot save
   counts: Map<string, number[]>; // numId -> items numbered so far, per level
   dropped: Set<DroppedPart>;
   page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
@@ -230,7 +235,7 @@ function partPath(target: string): string {
 }
 
 // Pictures are read up front so that the walk over the body can stay synchronous.
-async function images(zip: JSZip, body: Element, relations: Map<string, Relation>): Promise<Map<string, string | null>> {
+async function images(zip: JSZip, body: Element, relations: Map<string, Relation>, types = MIME): Promise<Map<string, string | null>> {
   const map = new Map<string, string | null>();
   const ids = [...descendants(body, "a:blip").map((b) => attr(b, "r:embed")), ...descendants(body, "v:imagedata").map((i) => attr(i, "r:id"))];
   await Promise.all([...new Set(ids)].map(async (id) => {
@@ -239,7 +244,7 @@ async function images(zip: JSZip, body: Element, relations: Map<string, Relation
     const path = partPath(rel.target);
     const file = zip.file(path);
     if (!file) return; // a reference to a file that is not there: the picture is skipped
-    const mime = lookup(MIME, path.slice(path.lastIndexOf(".") + 1).toLowerCase());
+    const mime = lookup(types, path.slice(path.lastIndexOf(".") + 1).toLowerCase());
     if (!mime) return void map.set(id, null);
     try {
       map.set(id, `data:${mime};base64,${await file.async("base64")}`);
@@ -394,14 +399,16 @@ async function keepPart(zip: JSZip, path: string, doc: Document, kind: HeaderFoo
 // What the page shows of a kept part: its blocks, with the pictures put first. Word anchors a logo into a line of
 // text and lets the text run beside it; the page floats pictures to the left, which needs them ahead of the text.
 async function viewOf(zip: JSZip, root: Element, relations: Map<string, Relation>, ctx: Context): Promise<{ view: JSONContent | null; unseen: boolean }> {
+  const shown = await images(zip, root, relations, SHOWN);
   const part: Context = {
-    ...ctx, images: await images(zip, root, relations), links: safeLinks(relations), counts: new Map(), dropped: new Set(), part: true, comments: undefined,
+    ...ctx, images: shown, links: safeLinks(relations), counts: new Map(), dropped: new Set(), part: true, comments: undefined,
   };
+  const unsaved = [...shown.values()].some((src) => src !== null && /^data:image\/(bmp|webp);/.test(src));
   try {
     const content = blocks(root, part).map((node) =>
       node.type === "image" ? { ...node, attrs: { ...node.attrs, cover: false } } : node);
     const view = finish([...content.filter((n) => n.type === "image"), ...content.filter((n) => n.type !== "image")]);
-    return { view, unseen: part.dropped.size > 0 };
+    return { view, unseen: part.dropped.size > 0 || unsaved };
   } catch {
     return { view: null, unseen: true };
   }
@@ -1042,7 +1049,7 @@ function pict(el: Element, ctx: Context, out: JSONContent[]): void {
 function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false, size: { width: number; height: number } | null = null): void {
   const src = id ? ctx.images.get(id) : null;
   if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }), ...size } });
-  else if (src === null) ctx.dropped.add("other_content"); // linked from outside the file, or EMF/TIFF/…
+  else if (src === null) ctx.dropped.add("other_content"); // linked from outside the file, or BMP/WebP/EMF/TIFF/…
 }
 
 // --- Tables ----------------------------------------------------------------------

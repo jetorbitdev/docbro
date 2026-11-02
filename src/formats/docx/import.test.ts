@@ -236,6 +236,18 @@ test("reads_pictures_by_their_extension_and_skips_formats_a_browser_cannot_show"
   expect(dropped).toEqual(["other_content"]);
 });
 
+// The .docx writer only has PNG, JPEG and GIF, so a BMP or WebP picture shown here would be lost on save without a word.
+test("reports_bmp_and_webp_pictures_as_content_it_cannot_keep", async () => {
+  const bytes = await withParts(
+    await buildDocx({ document: p(picture("rIdA", "Peta")) + p(picture("rIdB", "Logo")) }),
+    { "word/media/a.bmp": new Uint8Array([0x42, 0x4d, 0, 0]), "word/media/b.webp": new Uint8Array([0x52, 0x49, 0x46, 0x46]) },
+    [imageRel("rIdA", "media/a.bmp"), imageRel("rIdB", "media/b.webp")],
+  );
+  const { doc: result, dropped } = await importDocx(bytes);
+  expect(JSON.stringify(result)).not.toContain("\"image\"");
+  expect(dropped).toEqual(["other_content"]);
+});
+
 test("round_trips_merged_cells_multi_paragraph_items_and_adjacent_lists", async () => {
   const link: Mark = { type: "link", attrs: { href: "https://example.com/a?b=1&c=2" } };
   const cell = (colspan: number, rowspan: number, ...content: JSONContent[]): JSONContent =>

@@ -261,6 +261,15 @@ test("a_kept_part_says_what_editing_it_would_leave_out", async () => {
   expect((await importDocx(await pack(part("hdr", textbox)))).meta.headerPart!.editLoses).toEqual(["other_content"]);
 });
 
+test("a_kept_part_shows_a_bmp_logo_and_says_editing_it_would_leave_the_logo_out", async () => {
+  const bmp = new Uint8Array([0x42, 0x4d, 0, 0]);
+  const { meta, dropped } = await importDocx(await pack(part("hdr", LETTERHEAD), { rels: imageRels.replace("image1.png", "image1.bmp"), media: { "image1.bmp": bmp } }));
+  expect(dropped).toEqual([]); // written back from its own files, the logo is kept
+  expect(meta.headerPart!.media).toEqual({ "header-1.bmp": Buffer.from(bmp).toString("base64") });
+  expect(meta.headerPart!.view!.content![0].attrs!.src).toBe("data:image/bmp;base64,Qk0AAA==");
+  expect(meta.headerPart!.editLoses).toEqual(["other_content"]);
+});
+
 // ---------------------------------------------------------------- fields
 
 const COMPLEX_PAGE = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>3</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';

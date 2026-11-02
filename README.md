@@ -88,11 +88,11 @@ Before DocBro saves over a `.docx` that has any of these, it names them and asks
 - `footnotes`: footnotes and endnotes.
 - `tracked changes`: DocBro shows the text with every change accepted, and saves it that way.
 - `page setup`: landscape pages, paper that isn't Letter or A4, columns and gutters.
-- `other content`: text boxes, charts, diagrams, equations, shapes, embedded objects and symbols, the phonetic guide above ruby text, and pictures that are linked from outside the file or are not PNG, JPEG, GIF, BMP or WebP.
+- `other content`: text boxes, charts, diagrams, equations, shapes, embedded objects and symbols, the phonetic guide above ruby text, and pictures that are linked from outside the file or are not PNG, JPEG or GIF (a BMP or WebP picture in the body is not shown, because saving can't keep it).
 
 **Not kept, and not reported**
 
-Things the editor or the `.docx` writer has no place for: the size of a single run of text (the size most of the text has is kept), superscript and subscript, heading levels 4 to 9 (they become body paragraphs), and BMP and WebP pictures, which DocBro shows but saves as their alt text.
+Things the editor or the `.docx` writer has no place for: the size of a single run of text (the size most of the text has is kept), superscript and subscript, and heading levels 4 to 9 (they become body paragraphs).
 
 Saving as `.md` can't keep comments, headers and footers. DocBro says so and asks first. The `save_document` tool refuses a lossy save unless the client passes `accept_loss`.
 
