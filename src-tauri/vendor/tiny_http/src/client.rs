@@ -2,7 +2,7 @@ use ascii::AsciiString;
 
 use std::io::Error as IoError;
 use std::io::Result as IoResult;
-use std::io::{BufReader, BufWriter, ErrorKind, Read};
+use std::io::{self, BufReader, BufWriter, ErrorKind, Read};
 
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -11,6 +11,10 @@ use crate::common::{HTTPVersion, Method};
 use crate::util::RefinedTcpStream;
 use crate::util::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
 use crate::Request;
+
+/// DocBro patch: the most of an unread body a closing connection reads and throws away. Past it the
+/// connection is closed with the rest unread.
+const LINGER_LIMIT: usize = 16 * 1024 * 1024;
 
 /// A ClientConnection is an object that will store a socket to a client
 /// and return Request objects.
@@ -31,6 +35,9 @@ pub struct ClientConnection {
 
     // set to true if we know that the previous request is the last one
     no_more_requests: bool,
+
+    // DocBro patch: the last request's body, if it may be left unread past the drain limit
+    unread_body: Option<std::sync::mpsc::Receiver<IoResult<usize>>>,
 
     // true if the connection goes through SSL
     secure: bool,
@@ -64,6 +71,7 @@ impl ClientConnection {
             remote_addr,
             next_header_source: first_header,
             no_more_requests: false,
+            unread_body: None,
             secure,
         }
     }
@@ -180,11 +188,18 @@ impl Iterator for ClientConnection {
         // the client sent a "connection: close" header in this previous request
         //  or is using HTTP 1.0, meaning that no new request will come
         if self.no_more_requests {
+            // DocBro patch: what the request left of its body is read and thrown away here, on
+            // the connection's thread, once the request is done with. Closing with it unread
+            // would reset the connection, which can cost the client the response.
+            if let Some(Ok(Ok(left))) = self.unread_body.take().map(|rx| rx.recv()) {
+                let mut rest = self.next_header_source.by_ref().take(left.min(LINGER_LIMIT) as u64);
+                io::copy(&mut rest, &mut io::sink()).ok();
+            }
             return None;
         }
 
         loop {
-            let rq = match self.read() {
+            let mut rq = match self.read() {
                 Err(ReadError::WrongRequestLine) => {
                     let writer = self.sink.next().unwrap();
                     let response = Response::new_empty(StatusCode(400));
@@ -265,6 +280,7 @@ impl Iterator for ClientConnection {
             let chunked = rq.headers().iter().any(|h| h.field.equiv("Transfer-Encoding"));
             if chunked || rq.body_length().is_some_and(|len| len > crate::util::DRAIN_LIMIT) {
                 self.no_more_requests = true;
+                self.unread_body = rq.unread_body.take();
             }
 
             // returning the request

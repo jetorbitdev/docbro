@@ -5,7 +5,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 
 use crate::util::{EqualReader, FusedReader};
 use crate::{HTTPVersion, Header, Method, Response, StatusCode};
@@ -74,6 +74,10 @@ pub struct Request {
 
     // If Some, a message must be sent after responding
     notify_when_responded: Option<Sender<()>>,
+
+    // DocBro patch: how much of a body over the drain limit was left unread, once the body
+    // reader is dropped (`EqualReader`); taken by `ClientConnection`
+    pub(crate) unread_body: Option<Receiver<io::Result<usize>>>,
 }
 
 struct NotifyOnDrop<R> {
@@ -185,6 +189,7 @@ where
 
     // we wrap `source_data` around a reading whose nature depends on the transfer-encoding and
     // content-length headers
+    let mut unread_body = None;
     let reader = if connection_upgrade {
         // if we have a `Connection: upgrade`, always keeping the whole reader
         Box::new(source_data) as Box<dyn Read + Send + 'static>
@@ -212,7 +217,8 @@ where
 
             Box::new(Cursor::new(buffer)) as Box<dyn Read + Send + 'static>
         } else {
-            let (data_reader, _) = EqualReader::new(source_data, content_length); // TODO:
+            let (data_reader, unread) = EqualReader::new(source_data, content_length);
+            unread_body = Some(unread);
             Box::new(FusedReader::new(data_reader)) as Box<dyn Read + Send + 'static>
         }
     } else if transfer_encoding.is_some() {
@@ -238,6 +244,7 @@ where
         body_length: content_length,
         must_send_continue: expects_continue,
         notify_when_responded: None,
+        unread_body,
     })
 }
 

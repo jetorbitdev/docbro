@@ -1047,6 +1047,27 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_body_past_the_drain_limit_is_read_to_its_end_before_the_connection_closes() {
+        let host = TestHost::new();
+        let (_server, port) = start(&host);
+        // the 401 comes before the body is sent; the connection then takes the body and closes
+        // as usual. Closed with the body unread, it would be reset, and the client's write or
+        // read fail.
+        let head = format!("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 600000\r\n\r\n");
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(head.as_bytes()).unwrap();
+        let mut got = vec![0u8; 12];
+        s.read_exact(&mut got).unwrap();
+        assert_eq!(&got, b"HTTP/1.1 401");
+        std::thread::sleep(Duration::from_millis(100));
+        s.write_all(&[b' '; 600_000]).expect("the body could not be sent");
+        let mut rest = Vec::new();
+        s.read_to_end(&mut rest).expect("the connection was reset");
+        assert_eq!(String::from_utf8_lossy(&rest).matches("HTTP/1.1 ").count(), 0);
+    }
+
+    #[test]
     fn restart_on_the_same_port_succeeds_every_time() {
         let host = TestHost::new();
         let mut rt = Runtime::at(Ok(tmp("restart/mcp.json")));

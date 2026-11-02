@@ -14,14 +14,16 @@ where
 {
     reader: R,
     size: usize,
-    last_read_signal: Sender<IoResult<()>>,
+    // DocBro patch: on drop, how much of the body is left for the connection to discard (0 once
+    // drained or at end of stream); nothing is sent when the body was read to its end
+    last_read_signal: Sender<IoResult<usize>>,
 }
 
 impl<R> EqualReader<R>
 where
     R: Read,
 {
-    pub fn new(reader: R, size: usize) -> (EqualReader<R>, Receiver<IoResult<()>>) {
+    pub fn new(reader: R, size: usize) -> (EqualReader<R>, Receiver<IoResult<usize>>) {
         let (tx, rx) = channel();
 
         let r = EqualReader {
@@ -60,9 +62,9 @@ where
 }
 
 /// DocBro patch: the most a dropped reader drains so the connection can serve another request.
-/// A larger unread body is left alone, since reading it would let a client that claims a huge
-/// body (and sends nothing) hold the thread. Its bytes would then be read as the next request,
-/// so `ClientConnection` serves no more requests after one whose body is this large.
+/// A larger unread body is left alone: the reader is dropped on the server's own thread, which a
+/// client that claims a huge body (and sends nothing) would hold. Its size is signalled instead,
+/// and `ClientConnection`, on the connection's thread, discards it and serves no more requests.
 pub(crate) const DRAIN_LIMIT: usize = 64 * 1024;
 
 impl<R> Drop for EqualReader<R>
@@ -72,7 +74,7 @@ where
     fn drop(&mut self) {
         let mut remaining_to_read = self.size;
         if remaining_to_read > DRAIN_LIMIT {
-            self.last_read_signal.send(Ok(())).ok();
+            self.last_read_signal.send(Ok(remaining_to_read)).ok();
             return;
         }
         // DocBro patch: a fixed buffer, never one sized by the client's Content-Length
@@ -86,7 +88,7 @@ where
                     break;
                 }
                 Ok(0) => {
-                    self.last_read_signal.send(Ok(())).ok();
+                    self.last_read_signal.send(Ok(0)).ok();
                     break;
                 }
                 Ok(other) => {
