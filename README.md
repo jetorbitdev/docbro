@@ -36,7 +36,7 @@ Get the installer for your OS from the [latest release](https://github.com/jetor
 
 DocBro is developed and tested on macOS. The Windows and Linux installers are built by a [GitHub Actions workflow](#building-with-github-actions) and get less testing; on those systems, opening a file by double-clicking it in the file manager isn't handled yet, so use the Open dialog or drag the file onto the window. The Windows installers aren't code-signed, so SmartScreen shows a warning: choose **More info**, then **Run anyway**.
 
-The `.dmg` is built on a Mac and attached to the release by hand. If a release has none yet, [build from source](#build-from-source).
+The `.dmg` is built on a Mac and attached to the release by hand. If a release has none yet, [build from source](#build-from-source), or have an AI agent [build it for you](#build-it-with-an-ai-agent-no-coding-needed).
 
 ## Features
 
@@ -335,55 +335,86 @@ Run it from the **Actions** tab. With **release** off, the installers are upload
 
 The Windows installers aren't code-signed, so Windows SmartScreen warns before running them.
 
-### Prompt templates for AI agents
+### Build it with an AI agent (no coding needed)
 
-To have an AI coding agent (Claude Code, Cursor, Codex and so on) build DocBro for you, open it in the cloned repository and paste the prompt for your OS.
+You don't need to know the terminal to build DocBro. An AI coding agent can do every step for you, and these prompts tell it what to do and when to ask you first.
 
-macOS:
+1. Install an AI coding agent if you don't have one: [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com) or [Codex](https://openai.com/codex).
+2. Make a new, empty folder, for example `DocBro` in your Documents folder, and open the agent in it.
+3. Copy the prompt for your computer below, paste it into the agent and press Enter.
+4. Say yes when the agent asks to install something. On Mac and Linux it may ask for your computer password, and on Windows it may show an administrator prompt. The first build takes 10 to 30 minutes, most of it downloading tools.
+
+You can write back to the agent in any language. If something goes wrong, paste the error into the chat and ask it to fix it.
+
+**macOS**
 
 ```text
-Build DocBro from this repository on macOS. Follow "Build from source" in README.md.
-1. Check that Xcode Command Line Tools, Rust (stable), Node.js 20.19+ or 22.12+ and pnpm
-   are installed. Install whatever is missing, and ask me before running anything with sudo.
-2. Run `pnpm install`, then `pnpm tauri build`.
-3. If the build fails, read the error, fix the cause and build again. Don't change app code
-   unless the error is in it, and tell me what you changed.
-4. When it's done, give me the paths of DocBro.app and the .dmg in
-   src-tauri/target/release/bundle.
+Please build the DocBro app for me on this Mac. I'm not a programmer, so do every step
+yourself and explain what you're doing in plain words.
+
+1. If this folder doesn't have DocBro's code yet, download it with
+   `git clone https://github.com/jetorbitdev/docbro.git` and work inside the docbro folder.
+   Then read the "Build from source" and "macOS" parts of README.md.
+2. Check what's installed: Xcode Command Line Tools, Rust (stable, from rustup.rs),
+   Node.js 20.19+ or 22.12+, and pnpm. Install whatever is missing. Tell me before anything
+   asks for my password or opens an installer window, and wait for me to finish it.
+3. Run `pnpm install`, then `pnpm tauri build`.
+4. If the build fails, read the error, fix the cause and build again. Don't change the
+   app's code unless the error is in it, and tell me what you changed.
+5. When it's done, copy DocBro.app from src-tauri/target/release/bundle/macos to my
+   Applications folder (ask me first if one is already there), and open it.
+6. Tell me how to open it next time. The app isn't signed by Apple, so if macOS says it
+   can't be opened, explain how to allow it in System Settings > Privacy & Security.
 ```
 
-Windows:
+**Windows**
 
 ```text
-Build DocBro from this repository on Windows. Follow the "Windows" part of
-"Build from source" in README.md, and use PowerShell.
-1. Check that the Microsoft C++ Build Tools (Desktop development with C++), WebView2,
-   Rust with the stable-msvc toolchain, Node.js 20.19+ or 22.12+ and pnpm are installed.
-   Tell me what's missing and how to install it, or install it with winget if I agree.
-2. Run `pnpm install`, then `pnpm tauri build --bundles nsis,msi`.
-3. If the build fails, read the error, fix the cause and build again. Don't change app code
-   unless the error is in it, and tell me what you changed.
-4. When it's done, give me the paths of the setup .exe and the .msi in
-   src-tauri\target\release\bundle.
+Please build the DocBro app for me on this Windows PC. I'm not a programmer, so do every
+step yourself and explain what you're doing in plain words. Use PowerShell.
+
+1. If this folder doesn't have DocBro's code yet, download it with
+   `git clone https://github.com/jetorbitdev/docbro.git` and work inside the docbro folder
+   (install Git with `winget install Git.Git` first if it's missing).
+   Then read the "Build from source" and "Windows" parts of README.md.
+2. Check what's installed: Microsoft C++ Build Tools with "Desktop development with C++",
+   WebView2, Rust with the stable-msvc toolchain, Node.js 20.19+ or 22.12+, and pnpm.
+   Install whatever is missing, with winget where you can. Tell me before an administrator
+   prompt or installer window appears, and wait for me to finish it. If a new tool isn't
+   found after installing it, open a new PowerShell window and carry on.
+3. Run `pnpm install`, then `pnpm tauri build --bundles nsis`.
+4. If the build fails, read the error, fix the cause and build again. Don't change the
+   app's code unless the error is in it, and tell me what you changed.
+5. When it's done, run the setup .exe from src-tauri\target\release\bundle\nsis so
+   DocBro is installed and shows in the Start menu.
+6. Tell me how to open it next time. The installer isn't signed, so if Windows SmartScreen
+   warns about it, explain that I can choose "More info", then "Run anyway".
 ```
 
-Linux:
+**Linux**
 
 ```text
-Build DocBro from this repository on Linux. Follow the "Linux" part of
-"Build from source" in README.md.
-1. Find out which distribution and version I'm running from /etc/os-release. If it's
+Please build the DocBro app for me on this Linux computer. I'm not a programmer, so do
+every step yourself and explain what you're doing in plain words.
+
+1. If this folder doesn't have DocBro's code yet, download it with
+   `git clone https://github.com/jetorbitdev/docbro.git` and work inside the docbro folder.
+   Then read the "Build from source" and "Linux" parts of README.md.
+2. Find out which distribution and version I'm running from /etc/os-release. If it's
    RHEL, AlmaLinux or Rocky Linux older than 10, stop and tell me it isn't supported.
-2. Install the system packages listed for my distribution, then check that Rust (stable),
-   Node.js 20.19+ or 22.12+ and pnpm are installed. Ask me before running anything with sudo.
-3. Run `pnpm install`, then build the package format that fits my distribution:
-   `pnpm tauri build --bundles deb,appimage` on Debian or Ubuntu,
+3. Install the system packages README.md lists for my distribution. Tell me before you run
+   anything with sudo, because it will ask for my password. Then check that Rust (stable,
+   from rustup.rs), Node.js 20.19+ or 22.12+ and pnpm are installed, and install whatever
+   is missing.
+4. Run `pnpm install`, then build the package that fits my distribution:
+   `pnpm tauri build --bundles deb` on Debian, Ubuntu, Linux Mint or Pop!_OS,
    `pnpm tauri build --bundles rpm` on Fedora or the RHEL family,
    `pnpm tauri build --bundles appimage` on anything else.
-4. If the build fails, read the error, fix the cause and build again. Don't change app code
-   unless the error is in it, and tell me what you changed.
-5. When it's done, give me the paths of the packages in src-tauri/target/release/bundle and
-   the command to install them.
+5. If the build fails, read the error, fix the cause and build again. Don't change the
+   app's code unless the error is in it, and tell me what you changed.
+6. When it's done, install the package from src-tauri/target/release/bundle (for an
+   AppImage, copy it to ~/Applications and make it executable), and open DocBro.
+7. Tell me how to open it next time from my app menu.
 ```
 
 ## How it works
