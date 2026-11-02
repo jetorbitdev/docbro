@@ -8,3 +8,4 @@ src-tauri/gen
 .vitest-cache/
 .playwright-mcp/
 CLAUDE.md
+bun.lock
