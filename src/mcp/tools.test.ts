@@ -479,6 +479,59 @@ test("save_document_passes_the_sessions_refusals_through", async () => {
   expect(await ok("save_document", { accept_loss: true })).toBe("Saved to /d/lossy.docx.");
 });
 
+// A document the Assistant reads can tell it what to do (prompt injection), so it cannot throw away or overwrite work.
+test("the_assistant_cannot_discard_overwrite_accept_loss_or_save_elsewhere", async () => {
+  const assistant = (name: string, args: Record<string, unknown> = {}) => runTool({ ...ctx, origin: "assistant" }, name, args);
+  const refused = async (name: string, args: Record<string, unknown>) => {
+    const r = await assistant(name, args);
+    expect(r, r.text).toMatchObject({ ok: false });
+    return r.text;
+  };
+  io.files.set("/d/a.md", new TextEncoder().encode("# A"));
+  io.files.set("/d/b.md", new TextEncoder().encode("# B"));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only" }));
+
+  // nothing open yet: there is no file of its own to save to
+  set("Draft");
+  expect(await refused("save_document", { path: "/d/new.md" })).toBe(
+    "The assistant can only save the open file where it already is. Ask the user to save it somewhere else.");
+  expect(io.files.has("/d/new.md")).toBe(false);
+  expect(await refused("open_document", { path: "/d/a.md" })).toBe(
+    "The document has unsaved changes, so the assistant can't open another file. Ask the user to save or open it.");
+  expect(await refused("open_document", { path: "/d/a.md", discard: true })).toBe(
+    "The assistant can't discard unsaved changes. Ask the user to open the file.");
+  expect(text()).toBe("Draft");
+
+  await ok("open_document", { path: "/d/a.md", discard: true }); // the user's own client may
+  expect((await assistant("open_document", { path: "/d/b.md" })).ok).toBe(true); // nothing unsaved: allowed
+  set("Changed");
+  expect(await refused("save_document", { path: "/d/a.md" })).toBe(
+    "The assistant can only save the open file where it already is. Ask the user to save it somewhere else.");
+  expect(await refused("save_document", { overwrite: true })).toBe(
+    "The assistant can't replace another file. Ask the user to save it somewhere else.");
+  expect(new TextDecoder().decode(io.files.get("/d/a.md"))).toBe("# A");
+  expect(await assistant("save_document", { path: "/d/b.md" })).toEqual({ ok: true, text: "Saved to /d/b.md." });
+  expect(await assistant("save_document")).toEqual({ ok: true, text: "Saved to /d/b.md." });
+
+  await ok("open_document", { path: "/d/lossy.docx" });
+  expect(await refused("save_document", { accept_loss: true })).toBe(
+    "The assistant can't save a file that would lose parts DocBro can't keep. Ask the user to save it.");
+  expect((await assistant("save_document")).text).toMatch(/^Saving will remove parts/);
+});
+
+test("an_external_clients_calls_keep_every_option", async () => {
+  const external = (name: string, args: Record<string, unknown> = {}) => runTool({ ...ctx, origin: "external" }, name, args);
+  io.files.set("/d/a.md", new TextEncoder().encode("# A"));
+  io.files.set("/d/lossy.docx", await buildDocx({ document: BODY_WITH_INS_DEL_AND_TEXTBOX, header: "first-page-only" }));
+  set("Draft");
+  expect((await external("open_document", { path: "/d/a.md", discard: true })).ok).toBe(true);
+  set("Changed");
+  expect((await external("save_document", { path: "/d/new.md" })).ok).toBe(true);
+  expect((await external("save_document", { path: "/d/a.md", overwrite: true })).ok).toBe(true);
+  expect((await external("open_document", { path: "/d/lossy.docx" })).ok).toBe(true);
+  expect((await external("save_document", { accept_loss: true })).ok).toBe(true);
+});
+
 test("block_addresses_are_one_based_and_inclusive", () => {
   const doc = editor.schema.nodeFromJSON(markdownToDoc("A\n\nBB\n\nCCC"));
   expect(blockCount(doc)).toBe(3);

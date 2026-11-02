@@ -19,7 +19,7 @@ const EXPIRED = "The call expired before DocBro could run it.";
 /**
  * Runs the tool calls Rust forwards to this window, one at a time in the order they came, and
  * answers every one of them, even when the tool throws. Each call an external client makes
- * shows up in the activity feed.
+ * shows up in the activity feed. The tool is told who made the call: the Assistant's are held to less.
  * Resolves to the function that stops listening.
  */
 export async function startBridge(ctx: () => ToolContext): Promise<() => void> {
@@ -33,7 +33,7 @@ export async function startBridge(ctx: () => ToolContext): Promise<() => void> {
 async function answer(call: McpCall, entry: number | null, ctx: () => ToolContext) {
   let result: ToolResult;
   try {
-    result = Date.now() > call.deadline ? { ok: false, text: EXPIRED } : await runTool(ctx(), call.name, call.args);
+    result = Date.now() > call.deadline ? { ok: false, text: EXPIRED } : await runTool({ ...ctx(), origin: call.origin ?? "external" }, call.name, call.args);
   } catch (e) {
     result = { ok: false, text: (e instanceof Error && e.message) || String(e) };
   }

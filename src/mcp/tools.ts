@@ -29,6 +29,12 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 export interface ToolContext {
   editor: Editor;
   session: DocSession;
+  /**
+   * Who made the call (the `mcp-call` event's `origin`). The Assistant reads documents that can tell it what to do,
+   * so it cannot throw away unsaved work, replace or write another file, or save past a loss; an external client the
+   * user connected keeps every option.
+   */
+  origin?: "assistant" | "external";
 }
 
 export interface ToolResult {
@@ -468,21 +474,33 @@ function addComment({ editor, session }: ToolContext, a: Args): string {
 
 // ------------------------------------------------------------------ history and files
 
-async function openDocument({ editor, session }: ToolContext, a: Args): Promise<string> {
+const ASK_TO_OPEN = "Ask the user to open the file.";
+const ASK_TO_SAVE = "Ask the user to save it somewhere else.";
+
+async function openDocument({ editor, session, origin }: ToolContext, a: Args): Promise<string> {
   const path = reqString(a, "path");
-  await session.open(path, { discard: optBool(a, "discard") ?? false });
+  const discard = optBool(a, "discard") ?? false;
+  if (origin === "assistant") {
+    if (discard) fail(`The assistant can't discard unsaved changes. ${ASK_TO_OPEN}`);
+    if (session.dirty) fail("The document has unsaved changes, so the assistant can't open another file. Ask the user to save or open it.");
+  }
+  await session.open(path, { discard });
   const opened = `Opened ${session.name} (${plural(blockCount(editor.state.doc), "block")}).`;
   if (!session.dropped.length) return opened;
   const parts = session.dropped.map((part) => part.replace(/_/g, " ")).join(", ");
   return `${opened} DocBro can't keep these parts of the file: ${parts}. Saving over the file will remove them.`;
 }
 
-async function saveDocument({ session }: ToolContext, a: Args): Promise<string> {
+async function saveDocument({ session, origin }: ToolContext, a: Args): Promise<string> {
   const path = optString(a, "path");
-  const saved = await session.save(path ?? null, {
-    overwrite: optBool(a, "overwrite") ?? false,
-    acceptLoss: optBool(a, "accept_loss") ?? false,
-  });
+  const overwrite = optBool(a, "overwrite") ?? false;
+  const acceptLoss = optBool(a, "accept_loss") ?? false;
+  if (origin === "assistant") {
+    if (path !== undefined && path !== session.path) fail(`The assistant can only save the open file where it already is. ${ASK_TO_SAVE}`);
+    if (overwrite) fail(`The assistant can't replace another file. ${ASK_TO_SAVE}`);
+    if (acceptLoss) fail("The assistant can't save a file that would lose parts DocBro can't keep. Ask the user to save it.");
+  }
+  const saved = await session.save(path ?? null, { overwrite, acceptLoss });
   return `Saved to ${saved}.`;
 }
 

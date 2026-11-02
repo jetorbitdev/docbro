@@ -142,6 +142,17 @@ test("the_assistants_own_calls_run_but_stay_out_of_the_activity_feed", async () 
   expect(activity.list()).toMatchObject([{ tool: "document_info", state: "done" }]);
 });
 
+test("tells_the_tools_who_made_the_call", async () => {
+  stop = await startBridge(ctx);
+  editor.commands.setContent("<p>Unsaved</p>");
+  io.files.set("/d/a.md", new TextEncoder().encode("# A"));
+  await call(1, "open_document", { path: "/d/a.md", discard: true }, later(), "assistant");
+  await call(2, "open_document", { path: "/d/a.md", discard: true });
+  await answered(2);
+  expect(replies[0]).toEqual({ id: 1, ok: false, text: "The assistant can't discard unsaved changes. Ask the user to open the file." });
+  expect(replies[1]).toEqual({ id: 2, ok: true, text: "Opened a.md (2 blocks)." });
+});
+
 test("stops_listening_when_unlistened", async () => {
   const unlisten = await startBridge(ctx);
   unlisten();
