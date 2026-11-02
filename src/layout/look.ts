@@ -49,6 +49,8 @@ export function lookStyle(look: DocLook, scale: number, paperWidth: number): CSS
   };
   return {
     "--paper-max": `${paperWidth + 2}px`,
+    // what a table's widths, the file's in px, are drawn at (editor/extensions.ts)
+    "--look-scale": round(scale),
     "--pt": `${round(pt)}px`,
     "--look-size": `${round((look.size / 2) * pt)}px`,
     "--look-line": lineHeight(look.spacing) ?? String(SINGLE),

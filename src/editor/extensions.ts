@@ -158,19 +158,47 @@ const IndentedTable = Table.extend({
   },
 });
 // The editor draws a table through this view; the attributes above only reach the HTML written out.
+// Its widths and its indent, the file's in px, are drawn at the scale of the sheet (`--look-scale`, layout/look.ts) as its
+// text is, so in a narrow window the table shrinks with the page instead of running off it.
 class IndentedTableView extends TableView {
+  private observer?: MutationObserver;
   constructor(...args: ConstructorParameters<typeof TableView>) {
     super(...args);
     this.indent();
+    this.scale();
+    // dragging a column border writes its width in px straight to the table (prosemirror-tables); it is scaled before it is drawn
+    if (typeof MutationObserver !== "undefined") {
+      this.observer = new MutationObserver(() => this.scale());
+      this.observer.observe(this.table, { attributes: true, attributeFilter: ["style"] });
+      this.observer.observe(this.colgroup, { attributes: true, attributeFilter: ["style"], childList: true, subtree: true });
+    }
   }
   update(node: ConstructorParameters<typeof TableView>[0]): boolean {
     const same = super.update(node);
-    if (same) this.indent();
+    if (same) {
+      this.indent();
+      this.scale();
+    }
     return same;
   }
-  private indent() {
-    this.table.style.marginLeft = this.node.attrs.indent ? `${this.node.attrs.indent}px` : "";
+  destroy() {
+    this.observer?.disconnect();
   }
+  private indent() {
+    this.table.style.marginLeft = this.node.attrs.indent ? `calc(${this.node.attrs.indent}px * var(--look-scale, 1))` : "";
+  }
+  private scale() {
+    for (const el of [this.table, ...Array.from(this.colgroup.children)] as HTMLElement[]) {
+      scaledPx(el.style, "width");
+      scaledPx(el.style, "min-width");
+    }
+  }
+}
+
+// A width in px becomes that many px at the sheet's scale; one already scaled is left as it is, so this can run again.
+function scaledPx(style: CSSStyleDeclaration, property: string) {
+  const px = /^(\d+(?:\.\d+)?)px$/.exec(style.getPropertyValue(property));
+  if (px) style.setProperty(property, `calc(${px[1]}px * var(--look-scale, 1))`);
 }
 
 // The spacing a paragraph from a .docx has of its own, where it differs from the file's (doc/meta.ts `Spacing`, in twips),

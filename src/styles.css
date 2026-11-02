@@ -187,7 +187,7 @@ button,textarea{font-family:inherit}
 .paper.look .doc :is(ul,ol){margin:0}
 .paper.look .doc li{margin:0}
 .paper.look .doc table{font:inherit;margin:0}
-/* scaled down in a narrow window, a table keeps the file's widths and runs into the margin rather than being cut off */
+/* a table the file sets wider than its text runs into the margin, as it does in Word, rather than being cut off */
 .paper.look .doc .tableWrapper{overflow:visible}
 .paper.look .doc :is(td,th){padding:calc(5*var(--pt)) calc(5.4*var(--pt))}
 .paper.look .doc th{font:inherit;color:inherit;background:none}

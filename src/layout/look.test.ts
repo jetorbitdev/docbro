@@ -27,6 +27,7 @@ test("the_paper_is_sized_by_the_file_at_the_scale_of_the_sheet", () => {
   const style = lookStyle(LOOK, 0.5, 794) as Record<string, unknown>;
   expect(style).toMatchObject({
     "--paper-max": "796px", // the paper and its border
+    "--look-scale": 0.5,
     "--pt": "0.667px",
     "--look-size": "8px", // 12pt at half size
     "--look-line": "1.322",
