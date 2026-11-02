@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { PAPER, TWIPS_PER_PX, emptyMeta, type DocLook, type DocMeta, type KeptPart, type PageSize, type Spacing } from "../../doc/meta";
 import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
-import { fontName } from "../../editor/fonts";
+import { fontName, validSize } from "../../editor/fonts";
 import { commentEdge, commentWalk, openCommentMarks, settleComments, wordComments, type CommentWalk } from "./comments";
 import { MEDIA_TYPES } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
@@ -72,6 +72,9 @@ interface Context {
   page: { width: number; height: number }; // EMU, the paper of the last section: what a cover has to match
   textWidth: number; // px, the paper less its side margins: the widest a table is kept
   font?: string | null; // the typeface most of the body is in (`DocLook.font`); a run in another one keeps it
+  size?: number; // the size most of the body is, and the sizes of the headings (`DocLook`), in half-points
+  headingSizes?: (number | null)[];
+  baseSize?: number | null; // what the paragraph being read sets its text in; a run of another size keeps it
   // Reading a header or footer for its view: a picture keeps the size the file drew it at (there is no text width to
   // hold it to), and a field is a field, not its last value.
   part?: boolean;
@@ -125,6 +128,8 @@ export async function importDocx(bytes: Uint8Array): Promise<DocxImport> {
   if (comments.damaged) ctx.dropped.add("comments");
   ctx.spacing = spacingOf(ctx, null, null);
   ctx.font = bodyFont(body, ctx, theme);
+  ctx.size = bodySize(body, ctx);
+  ctx.headingSizes = [1, 2, 3].map((level) => headingSize(ctx, level));
   ctx.headings = [1, 2, 3].map((level) => spacingOf(ctx, null, headingStyle(ctx, level)));
   const content = trimCovers(blocks(body, ctx));
   const kept = settleComments(content, ctx.comments!);
@@ -663,33 +668,37 @@ function bodyFont(body: Element, ctx: Context, theme: Document | null): string |
   return most(fonts) ?? typeface(runProp(ctx, null, null, "w:rFonts"), theme);
 }
 
-/**
- * How the file sets its text (doc/meta.ts `DocLook`). The page has one size and one typeface for the text, so they are
- * the ones most of the body's text (headings aside) is in, counted by the character.
- */
-function lookOf(body: Element, ctx: Context): DocLook {
+// The size most of the body's text is, in half-points, counted by the character; the document's default when no run says.
+function bodySize(body: Element, ctx: Context): number {
   const sizes = new Map<number, number>();
   eachRun(body, ctx, (r, styleId, chars) => {
     const size = int(attr(runProp(ctx, r, styleId, "w:sz"), "w:val"));
     if (size) count(sizes, size, chars);
   });
-  const size = most(sizes) ?? int(attr(runProp(ctx, null, null, "w:sz"), "w:val")) ?? 20;
+  return most(sizes) ?? int(attr(runProp(ctx, null, null, "w:sz"), "w:val")) ?? 20;
+}
 
-  const headingSize = (level: number) => {
-    for (const [, style] of chain(ctx, headingStyle(ctx, level))) {
-      const sz = int(attr(first(style?.rPr ?? null, "w:sz"), "w:val"));
-      if (sz) return sz;
-    }
-    return null;
-  };
+// The size the style of a heading of `level` gives its text, in half-points; null when it gives none.
+function headingSize(ctx: Context, level: number): number | null {
+  for (const [, style] of chain(ctx, headingStyle(ctx, level))) {
+    const sz = int(attr(first(style?.rPr ?? null, "w:sz"), "w:val"));
+    if (sz) return sz;
+  }
+  return null;
+}
 
+/**
+ * How the file sets its text (doc/meta.ts `DocLook`). The page has one size and one typeface for the text, so they are
+ * the ones most of the body's text (headings aside) is in, counted by the character.
+ */
+function lookOf(body: Element, ctx: Context): DocLook {
   const pgMar = first(lastSection(body), "w:pgMar");
   const margin = (side: string, fallback: number) => Math.max(0, twips(attr(pgMar, side)) ?? fallback);
   return {
     font: ctx.font ?? null,
-    size,
+    size: ctx.size ?? 20,
     spacing: ctx.spacing,
-    headings: [1, 2, 3].map((level) => ({ size: headingSize(level), spacing: ctx.headings[level - 1] })),
+    headings: [1, 2, 3].map((level) => ({ size: ctx.headingSizes?.[level - 1] ?? null, spacing: ctx.headings[level - 1] })),
     margins: {
       top: margin("w:top", 1440), right: margin("w:right", 1440), bottom: margin("w:bottom", 1440), left: margin("w:left", 1440),
       header: margin("w:header", 720), footer: margin("w:footer", 720),
@@ -862,10 +871,11 @@ function paragraph(p: Element, ctx: Context): Item[] {
   const pPr = first(p, "w:pPr");
   const styleId = attr(first(pPr, "w:pStyle"), "w:val");
   const pieces: JSONContent[] = [];
+  const kind = kindOf(ctx, styleId);
+  ctx.baseSize = kind.type === "heading" ? ctx.headingSizes?.[kind.level - 1] ?? null : ctx.size;
   inlines(p, ctx, null, pieces);
   if (pieces.length === 0 && isRule(pPr)) return [{ node: { type: "horizontalRule" } }];
 
-  const kind = kindOf(ctx, styleId);
   const textAlign = lookup(ALIGN, attr(prop(ctx, pPr, styleId, "w:jc"), "w:val")) ?? null;
   const numId = attr(prop(ctx, pPr, styleId, "w:numPr/w:numId"), "w:val");
   const ilvl = int(attr(prop(ctx, pPr, styleId, "w:numPr/w:ilvl"), "w:val")) ?? 0;
@@ -917,7 +927,7 @@ const UNWRAP = ["w:ins", "w:moveTo", "w:smartTag", "w:customXml", "w:fldSimple",
 function inlines(parent: Element | null, ctx: Context, link: Mark | null, out: JSONContent[]): void {
   for (const el of children(parent)) {
     if (is(el, "w:r")) {
-      const marks = [...runMarks(first(el, "w:rPr"), link, ctx.filled, ctx.part ? undefined : ctx.font), ...openCommentMarks(ctx.comments)];
+      const marks = [...runMarks(first(el, "w:rPr"), link, ctx.filled, ctx.part ? undefined : { font: ctx.font ?? null, size: ctx.baseSize ?? null }), ...openCommentMarks(ctx.comments)];
       const before = out.length;
       run(el, ctx, marks, out);
       if (out.slice(before).some((node) => node.type === "text" || node.type === "hardBreak"))
@@ -977,8 +987,9 @@ const hex = (value: string | null) => (value && /^[0-9a-f]{6}$/i.test(value) ? `
 
 // Only direct formatting becomes marks: a style's look (heading size, the
 // Hyperlink style's blue underline) belongs to the block or the link.
-// A run's own typeface is kept when it is not the one the page is set in (`body`); `body` is left out where fonts are not read.
-function runMarks(rPr: Element | null, link: Mark | null, filled = false, body?: string | null): Mark[] {
+// A run's own typeface and size are kept when they are not what its paragraph is set in (`base`); `base` is left out where
+// they are not read.
+function runMarks(rPr: Element | null, link: Mark | null, filled = false, base?: { font: string | null; size: number | null }): Mark[] {
   const marks: Mark[] = [];
   if (toggle(first(rPr, "w:b"))) marks.push({ type: "bold" });
   if (toggle(first(rPr, "w:i"))) marks.push({ type: "italic" });
@@ -988,9 +999,11 @@ function runMarks(rPr: Element | null, link: Mark | null, filled = false, body?:
   // The source's own default text color (Word and Google Docs stamp one on every run) would vanish on the other theme; a choice is kept.
   const color = hex(attr(first(rPr, "w:color"), "w:val"));
   const rFonts = first(rPr, "w:rFonts");
-  const named = body === undefined ? null : fontName(attr(rFonts, "w:ascii") ?? attr(rFonts, "w:hAnsi"));
-  const fontFamily = named && named.toLowerCase() !== body?.toLowerCase() ? named : null;
-  const style = { ...(color && (filled || !isAutomaticColor(color)) && { color }), ...(fontFamily && { fontFamily }) };
+  const named = base ? fontName(attr(rFonts, "w:ascii") ?? attr(rFonts, "w:hAnsi")) : null;
+  const fontFamily = named && named.toLowerCase() !== base?.font?.toLowerCase() ? named : null;
+  const sz = base ? int(attr(first(rPr, "w:sz"), "w:val")) : null;
+  const fontSize = sz && sz !== base?.size ? validSize(sz / 2) : null;
+  const style = { ...(color && (filled || !isAutomaticColor(color)) && { color }), ...(fontFamily && { fontFamily }), ...(fontSize && { fontSize }) };
   if (Object.keys(style).length) marks.push({ type: "textStyle", attrs: style });
   const highlight = lookup(HIGHLIGHT, attr(first(rPr, "w:highlight"), "w:val")) ?? hex(attr(first(rPr, "w:shd"), "w:fill"));
   if (highlight) marks.push({ type: "highlight", attrs: { color: highlight } });

@@ -1,17 +1,22 @@
+import type { Editor } from "@tiptap/core";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { GROUPS, platformKeys, type Command, type Group } from "../commands";
+import type { DocLook } from "../doc/meta";
+import { FormatControls } from "./FormatControls";
 
 const ICONS: Record<Group, string> = { File: "▤", Edit: "✎", View: "◉", Insert: "+", Format: "Aa" };
 
-// A mouse-down on the bar would take focus (and the selection) from the editor.
-const keepFocus = (e: MouseEvent) => e.preventDefault();
+// A mouse-down on the bar would take focus (and the selection) from the editor; the size box is where it is wanted.
+const keepFocus = (e: MouseEvent) => {
+  if (!(e.target as Element).closest?.("input")) e.preventDefault();
+};
 
 /**
  * Mock 67–94: click opens a menu, hovering another switches while one is open, the backdrop or Esc closes.
  * The bar stays mounted when `visible` is false (Focus mode): its slot animates the height to 0 and is inert.
  */
-export function MenuBar({ commands, visible }: { commands: Command[]; visible: boolean }) {
+export function MenuBar({ commands, visible, editor, look }: { commands: Command[]; visible: boolean; editor?: Editor; look?: DocLook | null }) {
   const [open, setOpen] = useState<Group | null>(null);
   const larger = commands.find((c) => c.id === "larger_text");
   const palette = commands.find((c) => c.id === "palette");
@@ -57,6 +62,7 @@ export function MenuBar({ commands, visible }: { commands: Command[]; visible: b
             {open === group && <MenuList items={commands.filter((c) => c.group === group)} onChoose={choose} />}
           </div>
         ))}
+        {editor && <FormatControls editor={editor} look={look} />}
         <div className="spacer" />
         {palette && (
           <button className="search-btn" title={`Search the menus (${platformKeys("⌘K")} or ${platformKeys("⌥/")})`} onClick={palette.run}>

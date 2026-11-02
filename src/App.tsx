@@ -328,7 +328,7 @@ export default function App() {
   return (
     <div className={`app${resizing ? " snap" : ""}`} data-font={ui.sansFont ? "sans" : undefined}>
       <TopBar path={doc.path} dirty={doc.dirty} focus={ui.focus} assistantOpen={ui.assistantOpen && !ui.focus} run={run} />
-      <MenuBar commands={commands} visible={layout.showMenuBar} />
+      <MenuBar commands={commands} visible={layout.showMenuBar} editor={target} look={session?.meta.look} />
       {findRequest && <FindBar editor={editor} request={findRequest} onClose={closeFind} />}
       <div className="workspace">
         {/* the side panels stay mounted and animate their width (styles.css); a closed one is inert */}

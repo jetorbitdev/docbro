@@ -12,7 +12,7 @@ import { spacingStyle } from "../layout/look";
 import { inkOn, isAutomaticColor } from "./automaticColor";
 import { CommentMark } from "./comment";
 import { Field } from "./field";
-import { firstFamily, fontName, fontStack } from "./fonts";
+import { firstFamily, fontName, fontStack, sizeOf, sizeStyle, validSize } from "./fonts";
 import { PageBreak } from "./pageBreak";
 import { REMOTE_SRC, loadsInPage, remotePicture } from "./pictureSource";
 
@@ -52,6 +52,27 @@ const Typeface = FontFamily.extend({
           renderHTML: (attributes: Record<string, unknown>) => {
             const name = fontName(attributes.fontFamily);
             return name ? { style: `font-family: ${fontStack(name)}` } : {};
+          },
+        },
+      },
+    }];
+  },
+});
+
+// A size is kept in points, as Word has it, and drawn as that many of the page's points (`--pt`), which a .docx page scales
+// to its sheet. It is set with `setMark("textStyle", { fontSize })` (layout/blocks.ts `applySize`).
+const Typesize = Extension.create({
+  name: "typesize",
+  addGlobalAttributes() {
+    return [{
+      types: ["textStyle"],
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: (element: HTMLElement) => sizeOf(element.style.fontSize),
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const size = validSize(attributes.fontSize);
+            return size ? { style: `font-size: ${sizeStyle(size)}` } : {};
           },
         },
       },
@@ -215,6 +236,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     TextStyle,
     PastedColor,
     Typeface,
+    Typesize,
     Highlight.configure({ multicolor: true }),
     CommentMark,
     IndentedTable.configure({ resizable: true, View: IndentedTableView }),

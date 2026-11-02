@@ -41,7 +41,7 @@ import {
 } from "docx";
 import { PAPER, TWIPS_PER_PX, type DocLook, type DocMeta, type KeptPart, type Spacing } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
-import { fontName } from "../../editor/fonts";
+import { fontName, validSize } from "../../editor/fonts";
 import { planComments, withCommentRanges, type CommentPlan } from "./comments";
 import { MEDIA_TYPES } from "./media";
 
@@ -473,6 +473,7 @@ function text(node: JSONContent): TextRun | ExternalHyperlink {
   const mark = (type: string) => node.marks?.find((m) => m.type === type);
   const color = hex(mark("textStyle")?.attrs?.color);
   const font = fontName(mark("textStyle")?.attrs?.fontFamily) ?? undefined;
+  const points = validSize(mark("textStyle")?.attrs?.fontSize);
   const fill = hex(mark("highlight")?.attrs?.color);
   const href = mark("link")?.attrs?.href;
   const link = typeof href === "string" && href !== "" ? href : undefined;
@@ -486,6 +487,7 @@ function text(node: JSONContent): TextRun | ExternalHyperlink {
     strike: mark("strike") ? true : undefined,
     color,
     font,
+    size: points ? points * 2 : undefined, // half-points
     shading: fill ? { type: ShadingType.CLEAR, fill, color: "auto" } : undefined,
     style: link ? "Hyperlink" : undefined,
   });

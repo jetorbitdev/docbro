@@ -312,6 +312,12 @@ export function applyFont(editor: Editor, name: string | null): void {
   void (name ? chain.setFontFamily(name) : chain.unsetFontFamily()).run();
 }
 
+/** A size in points for the selection (or for what is typed next, at a caret), or null for the page's own. */
+export function applySize(editor: Editor, size: number | null): void {
+  const chain = editor.chain().focus();
+  void (size ? chain.setMark("textStyle", { fontSize: size }) : chain.setMark("textStyle", { fontSize: null }).removeEmptyTextStyle()).run();
+}
+
 /** A text color for the selection, or null for the default. */
 export function applyColor(editor: Editor, value: string | null): void {
   const chain = editor.chain().focus();

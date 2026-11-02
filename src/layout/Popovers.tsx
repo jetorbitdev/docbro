@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
-import { FONTS, fontName, fontStack } from "../editor/fonts";
+import { fontName, fontOptions, fontStack, sameFont } from "../editor/fonts";
 import { applyColor, applyFont, applyLink, popoverPosition, TEXT_COLORS } from "./blocks";
 
 const WIDTH = 280;
@@ -177,15 +177,10 @@ export function ColorPopover({ editor, paper, onClose }: Props) {
 export function FontPopover({ editor, paper, onClose }: Props) {
   const at = useAnchor(editor, paper);
   const box = useRef<HTMLDivElement>(null);
-  const [options] = useState(() => {
-    const current = fontName(editor.getAttributes("textStyle").fontFamily);
-    const known = FONTS.some((f) => f.name.toLowerCase() === current?.toLowerCase());
-    const names = [...(current && !known ? [current] : []), ...FONTS.map((f) => f.name)];
-    return { current, list: [...names, null] as (string | null)[] };
-  });
-  const { current, list } = options;
+  const [current] = useState(() => fontName(editor.getAttributes("textStyle").fontFamily));
+  const [list] = useState(() => fontOptions(current));
   const [index, setIndex] = useState(() => {
-    const found = list.findIndex((name) => name !== null && name.toLowerCase() === current?.toLowerCase());
+    const found = list.findIndex((name) => sameFont(name, current));
     return found < 0 ? list.length - 1 : found;
   });
 
@@ -225,12 +220,12 @@ export function FontPopover({ editor, paper, onClose }: Props) {
           key={name ?? "default"}
           className={`font-item${i === index ? " sel" : ""}`}
           style={name ? { fontFamily: fontStack(name) } : undefined}
-          aria-current={name !== null && name.toLowerCase() === current?.toLowerCase() ? "true" : undefined}
+          aria-current={sameFont(name, current) ? "true" : undefined}
           onClick={() => choose(i)}
           onMouseEnter={() => setIndex(i)}
         >
           <span>{name ?? "Default"}</span>
-          {name !== null && name.toLowerCase() === current?.toLowerCase() && <span className="tick">✓</span>}
+          {sameFont(name, current) && <span className="tick">✓</span>}
         </button>
       ))}
     </div>
