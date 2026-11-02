@@ -2,6 +2,7 @@ import type { Editor, JSONContent } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { DocSession, type SessionIO } from "../doc/session";
 import { blockCount, blockRange } from "../editor/blockAddress";
+import { FONTS, SIZES } from "../editor/fonts";
 import { createHeadlessEditor } from "../editor/headless";
 import { exportDocx } from "../formats/docx/export";
 import { fixtureDoc } from "../formats/docx/fixture";
@@ -203,7 +204,7 @@ test("format_text_refuses_bad_colors_and_empty_requests", async () => {
     expect(await err("format_text", { from: 1, highlight: color })).toBe("color must look like #1a2b3c");
   }
   expect(await err("format_text", { from: 1 })).toBe(
-    "Give at least one of bold, italic, underline, strike, color, highlight, link, style, align or list.");
+    "Give at least one of bold, italic, underline, strike, color, highlight, font, size, link, style, align or list.");
   expect(await err("format_text", { from: 1, bold: "yes" })).toBe("bold must be true or false.");
   expect(await err("format_text", { from: 1, style: "title" })).toBe(
     'style must be one of "body", "heading1", "heading2", "heading3", "quote".');
@@ -213,6 +214,87 @@ test("format_text_refuses_bad_colors_and_empty_requests", async () => {
   expect(await err("format_text", { from: 1, text: "", bold: true })).toBe("text must not be empty.");
   expect(md()).toBe("abc");
 });
+
+const styleOf = (block: JSONContent) => findMark(block, "textStyle")?.attrs;
+
+test("format_text_sets_font_and_size_and_null_gives_the_page_its_own", async () => {
+  set("one two\n\nother");
+  expect(await ok("format_text", { from: 1, font: "georgia", size: 14 })).toBe("Formatted blocks 1–1.");
+  expect(styleOf(top()[0])).toMatchObject({ fontFamily: "Georgia", fontSize: 14 }); // spelt as the Font list spells it
+  await ok("format_text", { from: 2, text: "other", font: "Fira Code", size: 10.3 });
+  expect(styleOf(top()[1])).toMatchObject({ fontFamily: "Fira Code", fontSize: 10.5 }); // to the half point
+  expect(md()).toBe("one two\n\nother"); // Markdown carries neither
+
+  await ok("format_text", { from: 1, font: null });
+  expect(styleOf(top()[0])).toMatchObject({ fontFamily: null, fontSize: 14 });
+  await ok("format_text", { from: 1, size: null });
+  expect(styleOf(top()[0])).toBeUndefined();
+});
+
+test("format_text_changes_color_font_and_size_without_losing_the_others", async () => {
+  set("one two");
+  await ok("format_text", { from: 1, font: "Georgia", size: 14, color: "#1a2b3c" });
+  await ok("format_text", { from: 1, text: "two", size: 20 });
+  const [one, two] = top()[0].content!;
+  expect(one.marks![0].attrs).toMatchObject({ fontFamily: "Georgia", fontSize: 14, color: "#1a2b3c" });
+  expect(two.marks![0].attrs).toMatchObject({ fontFamily: "Georgia", fontSize: 20, color: "#1a2b3c" });
+  await ok("format_text", { from: 1, color: null });
+  expect(top()[0].content!.map((n) => n.marks![0].attrs!.fontFamily)).toEqual(["Georgia", "Georgia"]);
+  editor.commands.undo();
+  expect(top()[0].content![0].marks![0].attrs).toMatchObject({ color: "#1a2b3c" }); // one undo step
+});
+
+test("format_text_refuses_bad_fonts_and_sizes", async () => {
+  set("abc");
+  for (const font of ["", "serif", "a;b", "x".repeat(65), 12, true]) {
+    expect(await err("format_text", { from: 1, font })).toBe('font must be the name of a typeface, such as "Georgia".');
+  }
+  for (const size of [0, 0.5, 401, -3, "12", NaN, true]) {
+    expect(await err("format_text", { from: 1, size })).toBe("size must be a number of points from 1 to 400.");
+  }
+  expect(findMark(editor.getJSON(), "textStyle")).toBeUndefined();
+});
+
+test("read_fonts_reports_what_the_page_draws_and_runs_where_a_block_mixes", async () => {
+  set("# Title\n\nplain\n\nsome mixed text\n\n---\n\n- a\n- b");
+  await ok("format_text", { from: 3, text: "mixed", font: "Arial", size: 9 });
+  await ok("format_text", { from: 5, size: 12 });
+  expect(JSON.parse(await ok("read_fonts"))).toEqual({
+    blocks: [
+      { block: 1, font: "Inter", size: 20 },
+      { block: 2, font: "Inter", size: 11 },
+      {
+        block: 3,
+        runs: [
+          { text: "some ", font: "Inter", size: 11 },
+          { text: "mixed", font: "Arial", size: 9 },
+          { text: " text", font: "Inter", size: 11 },
+        ],
+      },
+      // block 4, the divider, has no text
+      { block: 5, font: "Inter", size: 12 },
+    ],
+  });
+  expect(JSON.parse(await ok("read_fonts", { from: 2, to: 2 }))).toEqual({ blocks: [{ block: 2, font: "Inter", size: 11 }] });
+  expect(await err("read_fonts", { from: 9 })).toMatch(/^Block 9 does not exist/);
+});
+
+test("read_fonts_follows_a_docx_look_and_quotes_only_the_start_of_a_run", async () => {
+  set(`${"long ".repeat(30)}end`);
+  session.meta.look = { ...session.meta.look!, font: "Calibri", size: 24, headings: [{ size: 40 }, { size: null }, { size: null }] } as never;
+  await ok("format_text", { from: 1, text: "end", font: "Georgia" });
+  const { blocks } = JSON.parse(await ok("read_fonts"));
+  expect(blocks[0].runs[0]).toEqual({ text: `${"long ".repeat(12).trimEnd()}…`, font: "Calibri", size: 12 });
+  expect(blocks[0].runs[1]).toEqual({ text: "end", font: "Georgia", size: 12 });
+  expect(JSON.parse(await ok("document_info"))).toMatchObject({ font: "Calibri", size: 12, heading_sizes: [20, 18, 14] });
+});
+
+test("read_fonts_pages_long_documents", async () => {
+  set(hugeDoc(5000));
+  const r = JSON.parse(await ok("read_fonts"));
+  expect(r.more).toMatch(/Call read_fonts with from=\d+\.$/);
+  expect(JSON.stringify(r.blocks).length).toBeLessThanOrEqual(MAX_READ_CHARS);
+}, HUGE_MS);
 
 test("format_text_sets_style_alignment_and_lists", async () => {
   set("A\n\nB\n\nC\n\n- d\n- e\n\nF");
@@ -426,6 +508,11 @@ test("document_info_describes_the_document", async () => {
     header: null,
     footer: null,
     page_numbers: false,
+    font: "Inter",
+    size: 11,
+    heading_sizes: [20, 16, 13],
+    fonts: FONTS.map((f) => f.name),
+    sizes: SIZES,
     comments: 0,
     dropped: [],
     outline: [

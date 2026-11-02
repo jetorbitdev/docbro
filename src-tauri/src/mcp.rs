@@ -570,8 +570,9 @@ fn initialize(params: &Value) -> Value {
             has open, live in their window (the one in front when several are open). The document is \
             a list of top-level blocks (paragraphs, headings, lists, quotes, tables, images, dividers) \
             numbered from 1; a whole list or table is one block. Call document_info first, then \
-            read_document to see the blocks with their numbers. insert_content and replace_blocks take \
-            Markdown and work on whole top-level blocks only. Every edit is one undo step (the user can \
+            read_document to see the blocks with their numbers. Markdown carries no typeface or size: \
+            read_fonts tells what the text is set in, and format_text sets font and size. insert_content \
+            and replace_blocks take Markdown and work on whole top-level blocks only. Every edit is one undo step (the user can \
             press Cmd+Z, or you can call undo)."
     })
 }
@@ -756,7 +757,7 @@ mod tests {
                 .map(|t| t["name"].as_str().unwrap())
                 .collect()
         };
-        assert_eq!(hinted("readOnlyHint"), ["document_info", "read_document", "list_comments"]);
+        assert_eq!(hinted("readOnlyHint"), ["document_info", "read_document", "read_fonts", "list_comments"]);
         assert_eq!(hinted("destructiveHint"), ["replace_blocks", "delete_blocks", "open_document", "save_document"]);
     }
 

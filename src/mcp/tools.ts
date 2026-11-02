@@ -6,11 +6,13 @@ import type { DocSession } from "../doc/session";
 import { blockCount, blockRange } from "../editor/blockAddress";
 import { liveComments } from "../editor/comment";
 import { findAll, replaceAll } from "../editor/find";
+import { baseSize, FONTS, fontName, MAX_SIZE, MIN_SIZE, sameFont, SIZES, validSize } from "../editor/fonts";
 import { commit } from "../editor/history";
 import { formatOf } from "../formats";
 import { docToMarkdown, markdownToDoc } from "../formats/markdown";
 import { normalizeUrl } from "../layout/blocks";
 import { commentOn } from "../layout/comments";
+import type { DocLook } from "../doc/meta";
 import { docStats, outlineOf } from "../layout/outline";
 
 /**
@@ -22,7 +24,7 @@ import { docStats, outlineOf } from "../layout/outline";
  * one tool call, never with the user's typing before or after it. A refused call changes nothing.
  */
 
-export const TOOL_NAMES = ["document_info", "read_document", "insert_content", "replace_blocks", "delete_blocks",
+export const TOOL_NAMES = ["document_info", "read_document", "read_fonts", "insert_content", "replace_blocks", "delete_blocks",
   "find_replace", "format_text", "list_comments", "add_comment", "undo", "redo", "open_document", "save_document"] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -52,6 +54,9 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   read_document:
     "Reads blocks from..to as Markdown, each marked [n] with its block number. Blocks are the document's top-level " +
     "paragraphs, headings, lists, quotes, tables, images and dividers. A long document comes in pages; the end says where to go on.",
+  read_fonts:
+    "The typeface and size in points the text of blocks from..to is set in, as JSON: one font and size for a block in one, " +
+    "else its runs of text in each. Text that sets none has the page's own, which document_info gives.",
   insert_content:
     "Inserts Markdown as new top-level blocks before or after a block, or at the end. It cannot go inside a list or a table cell: " +
     "replace the whole list or table instead.",
@@ -62,7 +67,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "case_sensitive is false. A match never crosses from one paragraph into the next.",
   format_text:
     "Formats blocks from..to (to defaults to from). bold, italic, underline, strike: true or false. color, highlight: " +
-    "\"#rrggbb\", or null to remove. link: an http, https or mailto URL, or null to remove. With text, these go on that text " +
+    "\"#rrggbb\", or null to remove. font: a typeface name, size: points from 1 to 400, each or null for the page's own. " +
+    "link: an http, https or mailto URL, or null to remove. With text, these go on that text " +
     "only. style: body, heading1-3 or quote; align: left, center, right, justify or null; list: bullet, numbered or none.",
   list_comments: "The document's comments as JSON, in the order they come: id, author, date, text, and quote, the text they are on.",
   add_comment:
@@ -77,7 +83,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
 };
 
 const MARKS = ["bold", "italic", "underline", "strike"] as const;
-const FORMATS = [...MARKS, "color", "highlight", "link", "style", "align", "list"] as const;
+const FORMATS = [...MARKS, "color", "highlight", "font", "size", "link", "style", "align", "list"] as const;
 const STYLES = ["body", "heading1", "heading2", "heading3", "quote"] as const;
 const ALIGNS = ["left", "center", "right", "justify"] as const;
 const LIST_KINDS = ["bullet", "numbered", "none"] as const;
@@ -86,6 +92,7 @@ const LIST_KINDS = ["bullet", "numbered", "none"] as const;
 const ARGS: Record<ToolName, readonly string[]> = {
   document_info: [],
   read_document: ["from", "to"],
+  read_fonts: ["from", "to"],
   insert_content: ["markdown", "before", "after"],
   replace_blocks: ["from", "to", "markdown"],
   delete_blocks: ["from", "to"],
@@ -125,7 +132,7 @@ export async function runTool(ctx: ToolContext, name: string, args: Args): Promi
 const fail = (message: string): never => {
   throw new Error(message);
 };
-/** null stands for a missing argument, except where it means "remove" (color, highlight, link, align). */
+/** null stands for a missing argument, except where it means "remove" (color, highlight, font, size, link, align). */
 const given = (a: Args, key: string) => a[key] !== undefined && a[key] !== null;
 
 function optString(a: Args, key: string): string | undefined {
@@ -184,6 +191,12 @@ function documentInfo({ editor, session }: ToolContext): string {
     header: session.meta.header ?? partText(session.meta.headerPart),
     footer: session.meta.footer ?? partText(session.meta.footerPart),
     page_numbers: session.meta.pageNumbers,
+    // what text that sets no typeface or size of its own is drawn in, and what format_text offers
+    font: pageFont(session.meta.look),
+    size: baseSize(null, session.meta.look),
+    heading_sizes: [1, 2, 3].map((level) => baseSize(level, session.meta.look)),
+    fonts: FONTS.map((f) => f.name),
+    sizes: SIZES,
     comments: liveComments(session.meta.comments, doc).length,
     dropped: session.dropped,
     outline: outlineOf(doc).map(({ pos, level, text }) => ({ block: doc.resolve(pos).index(0) + 1, level, text })),
@@ -191,7 +204,7 @@ function documentInfo({ editor, session }: ToolContext): string {
 }
 
 const blockMarkdown = (node: PMNode) => docToMarkdown({ type: "doc", content: [node.toJSON()] }).replace(/^\n+|\n+$/g, "");
-const more = (count: number, next: number) => `… ${plural(count, "more block")}. Call read_document with from=${next}.`;
+const more = (count: number, next: number, tool = "read_document") => `… ${plural(count, "more block")}. Call ${tool} with from=${next}.`;
 
 /** A block too long for one page, cut to fit, with a note saying so. */
 function cutBlock(part: string, n: number): string {
@@ -221,6 +234,58 @@ function readDocument({ editor }: ToolContext, a: Args): string {
     size += cost;
   }
   return parts.join("\n\n");
+}
+
+/** The typeface text that sets none is drawn in: the file's own for a .docx that says, else DocBro's (FormatControls shows the same). */
+const pageFont = (look: DocLook | null) => look?.font ?? "Inter";
+
+/** How much of a run's text `read_fonts` quotes: enough to tell which run it is, not to read it. */
+const QUOTE_CHARS = 60;
+const quote = (text: string) => (text.length > QUOTE_CHARS ? `${text.slice(0, QUOTE_CHARS).trimEnd()}…` : text);
+
+/** A block's text in runs of one typeface and size, as the page draws them: text that sets none in the page's own. */
+function fontRuns(block: PMNode, look: DocLook | null) {
+  const runs: { text: string; font: string; size: number }[] = [];
+  const visit = (node: PMNode): void => {
+    if (!node.isTextblock) return node.forEach(visit);
+    const level = node.type.name === "heading" ? (node.attrs.level as number) : null;
+    let previous: (typeof runs)[number] | undefined;
+    node.forEach((child) => {
+      if (!child.isText) return;
+      const style = child.marks.find((m) => m.type.name === "textStyle")?.attrs;
+      const font = fontName(style?.fontFamily) ?? pageFont(look);
+      const size = validSize(style?.fontSize) ?? baseSize(level, look);
+      // runs only join within a paragraph: the next one starts its own, even in the same face
+      if (previous && sameFont(previous.font, font) && previous.size === size) previous.text += child.text;
+      else runs.push((previous = { text: child.text!, font, size }));
+    });
+  };
+  visit(block);
+  return runs;
+}
+
+function readFonts({ editor, session }: ToolContext, a: Args): string {
+  const { doc } = editor.state;
+  const from = optBlock(a, "from") ?? 1;
+  const to = optBlock(a, "to") ?? blockCount(doc);
+  blockRange(doc, from, to);
+  const blocks: object[] = [];
+  let size = 0;
+  for (let n = from; n <= to; n++) {
+    const runs = fontRuns(doc.child(n - 1), session.meta.look);
+    if (!runs.length) continue; // a picture or a divider has no text to set
+    const one = runs.every((r) => sameFont(r.font, runs[0].font) && r.size === runs[0].size);
+    const entry = one
+      ? { block: n, font: runs[0].font, size: runs[0].size }
+      : { block: n, runs: runs.map((r) => ({ ...r, text: quote(r.text) })) };
+    const cost = JSON.stringify(entry).length + 1;
+    if (blocks.length && size + cost > MAX_READ_CHARS) {
+      return JSON.stringify({ blocks, more: more(to - n + 1, n, "read_fonts") });
+    }
+    blocks.push(entry);
+    size += cost;
+  }
+  return JSON.stringify({ blocks });
 }
 
 // ------------------------------------------------------------------ blocks
@@ -376,11 +441,42 @@ function restyle(tr: Transaction, lo: number, hi: number, style: (typeof STYLES)
   }
 }
 
-function colorArg(a: Args, key: string, type: MarkType): Mark | null {
+function colorArg(a: Args, key: string): string | null {
   if (a[key] === null) return null;
   const value = a[key];
   if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) fail("color must look like #1a2b3c");
-  return type.create({ color: (value as string).toLowerCase() });
+  return (value as string).toLowerCase();
+}
+
+/** A typeface by name, spelt as the Font list spells it when it is one of its faces ("georgia" is Georgia). */
+function fontArg(a: Args): string | null {
+  if (a.font === null) return null;
+  const name = fontName(a.font) ?? fail('font must be the name of a typeface, such as "Georgia".');
+  return FONTS.find((f) => sameFont(f.name, name))?.name ?? name;
+}
+
+/** A size in points, to the half point as Word keeps it. */
+function sizeArg(a: Args): number | null {
+  if (a.size === null) return null;
+  return (typeof a.size === "number" && validSize(a.size)) || fail(`size must be a number of points from ${MIN_SIZE} to ${MAX_SIZE}.`);
+}
+
+/**
+ * Sets text color, typeface and size between `from` and `to`. They are one mark (textStyle), so each piece of text keeps
+ * what `patch` does not name: a new size leaves the text's color and face as they were. A piece left with none loses the mark.
+ */
+function setTextStyle(tr: Transaction, from: number, to: number, patch: Record<string, unknown>) {
+  const type = tr.doc.type.schema.marks.textStyle;
+  const pieces: { from: number; to: number; attrs: Record<string, unknown> }[] = [];
+  tr.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return;
+    const attrs = { ...type.isInSet(node.marks)?.attrs, ...patch };
+    pieces.push({ from: Math.max(pos, from), to: Math.min(pos + node.nodeSize, to), attrs });
+  });
+  for (const piece of pieces) {
+    if (Object.values(piece.attrs).some((v) => v != null)) tr.addMark(piece.from, piece.to, type.create(piece.attrs));
+    else tr.removeMark(piece.from, piece.to, type);
+  }
 }
 
 function formatText({ editor }: ToolContext, a: Args): string {
@@ -394,8 +490,15 @@ function formatText({ editor }: ToolContext, a: Args): string {
     const on = optBool(a, name);
     if (on !== undefined) changes.push({ type: marks[name], mark: on ? marks[name].create() : null });
   }
-  if (has("color")) changes.push({ type: marks.textStyle, mark: colorArg(a, "color", marks.textStyle) });
-  if (has("highlight")) changes.push({ type: marks.highlight, mark: colorArg(a, "highlight", marks.highlight) });
+  if (has("highlight")) {
+    const color = colorArg(a, "highlight");
+    changes.push({ type: marks.highlight, mark: color ? marks.highlight.create({ color }) : null });
+  }
+  const textStyle: Record<string, unknown> = {};
+  if (has("color")) textStyle.color = colorArg(a, "color");
+  if (has("font")) textStyle.fontFamily = fontArg(a);
+  if (has("size")) textStyle.fontSize = sizeArg(a);
+  const restyled = Object.keys(textStyle).length > 0;
   if (has("link")) {
     const href = typeof a.link === "string" ? normalizeUrl(a.link) : null;
     if (a.link !== null && !href) fail("link must be an http, https or mailto URL");
@@ -408,8 +511,8 @@ function formatText({ editor }: ToolContext, a: Args): string {
     align = a.align === null || ALIGNS.includes(a.align as never) ? (a.align as typeof align) : undefined;
     if (align === undefined) fail(`align must be one of ${ALIGNS.map((v) => `"${v}"`).join(", ")}, or null.`);
   }
-  if (!changes.length && !style && !list && align === undefined) {
-    fail("Give at least one of bold, italic, underline, strike, color, highlight, link, style, align or list.");
+  if (!changes.length && !restyled && !style && !list && align === undefined) {
+    fail("Give at least one of bold, italic, underline, strike, color, highlight, font, size, link, style, align or list.");
   }
   if (style && HEADING_LEVEL[style] && list && list !== "none") fail("A list item can't be a heading. Give style or list, not both.");
   const text = optString(a, "text");
@@ -442,6 +545,7 @@ function formatText({ editor }: ToolContext, a: Args): string {
       if (mark) tr.addMark(range.from, range.to, mark);
       else tr.removeMark(range.from, range.to, type);
     }
+    if (restyled) setTextStyle(tr, range.from, range.to, textStyle);
   }
   commit(editor, tr);
   return `Formatted blocks ${first}–${last}.`;
@@ -507,6 +611,7 @@ async function saveDocument({ session, origin }: ToolContext, a: Args): Promise<
 const TOOLS: Record<ToolName, Tool> = {
   document_info: documentInfo,
   read_document: readDocument,
+  read_fonts: readFonts,
   insert_content: insertContent,
   replace_blocks: replaceBlocks,
   delete_blocks: deleteBlocks,

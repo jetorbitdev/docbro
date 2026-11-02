@@ -136,13 +136,14 @@ The port is 7425 unless you change it in MCP settings (1024 to 65535). SheetBro 
 
 | Tool | What it does |
 |---|---|
-| `document_info` | The open document's name, path, format (`docx` or `md`), unsaved-changes flag, and counts of blocks, words, characters and comments. Also its outline (headings with their block numbers) and any parts of the file DocBro can't keep. Call it first |
+| `document_info` | The open document's name, path, format (`docx` or `md`), unsaved-changes flag, and counts of blocks, words, characters and comments. Also its outline (headings with their block numbers), the typeface and sizes text has when it sets none of its own, the fonts and sizes DocBro offers, and any parts of the file DocBro can't keep. Call it first |
 | `read_document` | Reads blocks as Markdown, each marked with its block number. A long document comes in pages, and the end of the text says where to go on |
+| `read_fonts` | The typeface and size in points of each block's text. A block that mixes them comes as runs, each with the start of its text |
 | `insert_content` | Inserts Markdown as new blocks before or after a block, or at the end |
 | `replace_blocks` | Replaces a range of blocks with Markdown. This is how to change something inside a list or a table |
 | `delete_blocks` | Deletes a range of blocks |
 | `find_replace` | Replaces every occurrence of a piece of text, in the whole document or in a range of blocks. Case sensitive unless told otherwise, and it reports how many it replaced |
-| `format_text` | Bold, italic, underline, strikethrough, text color, highlight and links, on whole blocks or only on the occurrences of some text. Also paragraph style (body, heading 1 to 3, quote), alignment, and turning blocks into a list or back |
+| `format_text` | Bold, italic, underline, strikethrough, text color, highlight, typeface, size in points and links, on whole blocks or only on the occurrences of some text. Also paragraph style (body, heading 1 to 3, quote), alignment, and turning blocks into a list or back |
 | `list_comments` | The document's comments, each with its author, date, text and the text it is on |
 | `add_comment` | Adds a comment from "AI" on a block, or on some text in it. It shows beside the page, and you can resolve it |
 | `undo` / `redo` | Undoes or redoes the last change, whether yours or an AI's |
@@ -155,6 +156,7 @@ Notes for people writing prompts or building clients:
 - **One undo step per call.** Each edit tool call is a single step in the undo history, closed off from your own typing before and after it. ⌘Z takes back exactly that call.
 - **Which window.** A call from an AI client runs in the window you used last. If it sends an argument a tool doesn't take, the call is refused, not ignored.
 - **Unsaved work.** Edits live in the open window until `save_document` runs. `document_info` carries the unsaved-changes flag, so a client can remind you to save.
+- **Fonts and sizes.** Markdown carries neither, so `read_document` doesn't show them and new blocks start in the page's own. `read_fonts` tells what the text is set in, and `format_text` sets `font` (a name such as `Georgia`) and `size` (1 to 400 points, to the half point). `null` gives the text the page's own again, and changing one of color, font or size leaves the other two alone.
 - **Colors** are `#rrggbb`. A link must be `http`, `https` or `mailto`.
 - **Pictures.** The Markdown tools can't embed a picture. An image link such as `![chart](https://example.com/chart.png)` is kept in the document as a link and drawn as its alt text and address. DocBro never loads it.
 

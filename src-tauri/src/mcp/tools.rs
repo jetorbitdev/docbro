@@ -5,9 +5,10 @@ use serde_json::{json, Value};
 
 /// The tools the webview runs (`TOOL_NAMES` in src/mcp/tools.ts, same order; names.test.ts
 /// checks it). Anything else is refused here, before it reaches the window.
-pub(crate) const TOOL_NAMES: [&str; 13] = [
+pub(crate) const TOOL_NAMES: [&str; 14] = [
     "document_info",
     "read_document",
+    "read_fonts",
     "insert_content",
     "replace_blocks",
     "delete_blocks",
@@ -69,7 +70,9 @@ pub(crate) fn tool_defs() -> Vec<Value> {
             "Document info",
             "Name, path, format (docx or md), unsaved-changes flag, block, word, character and comment \
              counts and outline (headings with their block numbers) of the document open in DocBro, as \
-             JSON. `dropped` lists parts of the file DocBro cannot keep. Call this first.",
+             JSON. `font`, `size` and `heading_sizes` are the typeface and sizes in points of text that sets \
+             none of its own; `fonts` and `sizes` are the ones DocBro's Font and Size lists offer. `dropped` \
+             lists parts of the file DocBro cannot keep. Call this first.",
             json!({}),
             &[],
             Hint::Read,
@@ -84,6 +87,21 @@ pub(crate) fn tool_defs() -> Vec<Value> {
             json!({
                 "from": block("First block to read, counting from 1. Defaults to 1."),
                 "to": block("Last block to read (inclusive). Defaults to the last block."),
+            }),
+            &[],
+            Hint::Read,
+        ),
+        tool(
+            "read_fonts",
+            "Read fonts",
+            "The typeface and size in points the text of blocks from..to is set in, as JSON \
+             { blocks: [...] }: { block, font, size } for a block in one face and size, else { block, runs } \
+             with the start of each run's text. Text that sets none is reported in the page's own (see \
+             document_info). Blocks without text are left out. A long range comes in pages: `more` says \
+             where to go on.",
+            json!({
+                "from": block("First block, counting from 1. Defaults to 1."),
+                "to": block("Last block (inclusive). Defaults to the last block."),
             }),
             &[],
             Hint::Read,
@@ -139,8 +157,8 @@ pub(crate) fn tool_defs() -> Vec<Value> {
             "format_text",
             "Format text",
             "Formats top-level blocks from..to. Pass only what should change, at least one option. With \
-             `text`, bold, italic, underline, strike, color, highlight and link go on the occurrences of \
-             that text only; style, align and list always apply to whole paragraphs and headings. One \
+             `text`, bold, italic, underline, strike, color, highlight, font, size and link go on the \
+             occurrences of that text only; style, align and list always apply to whole paragraphs and headings. One \
              undo step.",
             json!({
                 "from": from,
@@ -152,6 +170,16 @@ pub(crate) fn tool_defs() -> Vec<Value> {
                 "strike": flag("Strikethrough on or off."),
                 "color": color("Text color"),
                 "highlight": color("Highlight color"),
+                "font": {
+                    "type": ["string", "null"],
+                    "description": "Typeface name, such as \"Georgia\" (see `fonts` in document_info), or null for the page's own.",
+                },
+                "size": {
+                    "type": ["number", "null"],
+                    "minimum": 1,
+                    "maximum": 400,
+                    "description": "Size in points, to the half point (body text is usually 11 or 12), or null for the page's own.",
+                },
                 "link": { "type": ["string", "null"], "description": "An http, https or mailto URL, or null to remove the link." },
                 "style": { "type": "string", "enum": ["body", "heading1", "heading2", "heading3", "quote"], "description": "Paragraph style." },
                 "align": { "type": ["string", "null"], "enum": ["left", "center", "right", "justify", null], "description": "Alignment, or null for the default." },
