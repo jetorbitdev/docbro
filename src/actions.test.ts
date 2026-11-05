@@ -269,12 +269,14 @@ test("the_window_supplies_its_file_and_view_actions", () => {
   const ui = {} as UiState;
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette, shell });
   expect(Object.keys(actions).sort()).toEqual(
-    ["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs", "toggleFooter", "toggleHeader", "togglePageNumbers", "uploadGoogle"],
+    ["insertImage", "newWindow", "open", "palette", "print", "save", "saveAs", "savePdf", "toggleFooter", "toggleHeader", "togglePageNumbers", "uploadGoogle"],
   );
   actions.palette!();
   expect(openPalette).toHaveBeenCalledOnce();
   actions.print!();
   expect(print).toHaveBeenCalledOnce();
+  actions.savePdf!();
+  expect(print).toHaveBeenCalledTimes(2);
   actions.newWindow!();
   expect(shell.openInWindow).toHaveBeenCalledWith(null);
   print.mockRestore();
@@ -285,6 +287,19 @@ test("print_is_allowed_in_every_document_window", () => {
   const capability = JSON.parse(readFileSync("src-tauri/capabilities/default.json", "utf8"));
   expect(capability.windows).toEqual(["*"]);
   expect(capability.permissions).toContain("core:webview:allow-print");
+});
+
+test("a_save_as_pdf_that_fails_says_so_instead_of_doing_nothing", async () => {
+  const shell = fakeShell();
+  const refused = Promise.reject("webview.print not allowed");
+  const print = vi.spyOn(window, "print").mockImplementation(() => refused as unknown as void);
+  const actions = buildActions({ editor, session, ui: {} as UiState, setUi: () => {}, openPalette: () => {}, shell });
+  actions.savePdf!();
+  await vi.waitFor(() => expect(shell.showError).toHaveBeenCalledOnce());
+  const shown = vi.mocked(shell.showError).mock.calls[0][0] as Error;
+  expect(shown.message).toContain("save a PDF");
+  expect(shown.message).toContain("webview.print not allowed");
+  print.mockRestore();
 });
 
 test("a_print_that_fails_says_so_instead_of_doing_nothing", async () => {
@@ -308,7 +323,7 @@ test("image_runs_the_picker_and_link_and_color_open_their_popovers", () => {
   const actions = buildActions({ editor, session, ui, setUi: () => {}, openPalette: () => {}, openLink, openColor, shell: fakeShell() });
   expect(Object.keys(actions).sort()).toEqual(
     [
-      "insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs",
+      "insertImage", "insertLink", "newWindow", "open", "palette", "pickColor", "print", "save", "saveAs", "savePdf",
       "toggleFooter", "toggleHeader", "togglePageNumbers", "uploadGoogle",
     ],
   );

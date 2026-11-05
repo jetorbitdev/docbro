@@ -518,6 +518,7 @@ _November 2, 2026_
 - feat: Outline sidebar with word count, character count and reading time
 - feat: Focus mode, dark mode, larger text, and a serif or sans-serif body font
 - feat: Print (⌘P), with only the page on the printed sheet
+- feat: File ▸ Save as PDF… opens the print dialog to write a PDF named after the document: on macOS use the PDF button, on Windows pick Microsoft Print to PDF, on Linux pick Print to File
 - feat: Built-in MCP server over Streamable HTTP and stdio, with ready-made setup for Claude Code, Claude Desktop, Cursor, VS Code, Windsurf, Gemini CLI and Codex CLI
 - feat: 13 MCP document tools to read, edit, comment on, open and save the document, each edit one undo step
 - feat: Tool calls from other apps show in the Assistant panel as External cards

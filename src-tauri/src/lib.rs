@@ -386,6 +386,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator()
         .item(&MenuItemBuilder::with_id("google_docs", "Upload to Google Docs").build(app)?)
         .separator()
+        .item(&MenuItemBuilder::with_id("save_pdf", "Save as PDF…").build(app)?)
         .item(&item("print", "Print…", "CmdOrCtrl+P")?)
         .separator()
         .close_window()

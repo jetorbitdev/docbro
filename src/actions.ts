@@ -175,12 +175,14 @@ export function recentlyRan(ms: number, now: () => number = Date.now): (id: stri
 
 /** Opens the print dialog. On macOS window.print() goes through Tauri and can be refused,
  *  so a refusal is shown rather than leaving ⌘P doing nothing. */
-export async function printPage(shell: Shell): Promise<void> {
+export async function printPage(shell: Shell, pdf = false): Promise<void> {
   try {
     await (window.print() as unknown);
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    shell.showError(new Error(`DocBro could not open the print dialog (${why}). Try ⌘P again. If it still fails, save the document and print it from Word or Pages.`));
+    shell.showError(new Error(pdf
+      ? `DocBro could not open the print dialog to save a PDF (${why}). Try again. If it still fails, save the document and export it as PDF from Word or Pages.`
+      : `DocBro could not open the print dialog (${why}). Try ⌘P again. If it still fails, save the document and print it from Word or Pages.`));
   }
 }
 
@@ -219,6 +221,8 @@ export function buildActions(deps: ActionDeps): CommandHost["actions"] {
     save: () => void runExclusive(shell, () => saveDocument(shell, session)),
     saveAs: () => void runExclusive(shell, () => saveAs(shell, session)),
     print: () => void printPage(shell),
+    // the print dialog writes PDFs: macOS under its PDF button, Windows via Microsoft Print to PDF, Linux via Print to File
+    savePdf: () => void printPage(shell, true),
     uploadGoogle: () =>
       void runExclusive(shell, () =>
         uploadToGoogleDocs(shell, session, google, { openSettings: deps.openGoogleSettings, onBusy: deps.onUploading }),

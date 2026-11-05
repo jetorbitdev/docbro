@@ -207,6 +207,8 @@ export default function App() {
   useEffect(() => {
     const title = `${crumbs(doc.path).name}${doc.dirty ? " — Edited" : ""}`;
     getCurrentWindow().setTitle(title).catch(() => {});
+    // the print dialog proposes the page title as the PDF's file name
+    document.title = crumbs(doc.path).name.replace(/\.(docx|md|markdown)$/i, "");
   }, [doc.path, doc.dirty]);
 
   useEffect(() => {
