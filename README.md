@@ -553,6 +553,7 @@ _November 2, 2026_
 - feat: Assistant on other providers through an OpenAI-compatible API: OpenAI, OpenRouter, Google Gemini, Groq, DeepSeek, Mistral, Ollama, LM Studio or your own address
 - feat: Add your own MCP servers to the Assistant, over HTTP or as a command, with a SheetBro preset and @server mentions
 - feat: A GitHub Actions workflow that builds installers for Windows (.exe, .msi) and Linux (.deb, .AppImage, .rpm)
+- feat: One-line install from the terminal on macOS and Linux (install.sh) and PowerShell on Windows (install.ps1), checked against the release's SHA-256 digest
 - docs: Build instructions for macOS, Windows and Linux
 
 ## Contributing
