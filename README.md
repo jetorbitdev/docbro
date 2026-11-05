@@ -26,6 +26,8 @@ DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It
 ## Contents
 
 - [Download](#download)
+  - [One-line install](#one-line-install)
+  - [Download the installer](#download-the-installer)
 - [Features](#features)
   - [What DocBro keeps from Word files](#what-docbro-keeps-from-word-files)
 - [Screenshots](#screenshots)
@@ -51,7 +53,29 @@ DocBro opens `.docx` and `.md` files and edits them in a clean, paged editor. It
 
 ## Download
 
-Get the installer for your OS from the [latest release](https://github.com/jetorbitdev/docbro/releases/latest):
+### One-line install
+
+macOS and Linux, in Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jetorbitdev/docbro/main/install.sh | bash
+```
+
+Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/jetorbitdev/docbro/main/install.ps1 | iex
+```
+
+The installer downloads the latest release and checks it against the SHA-256 checksum GitHub records for the file. Then:
+
+- **macOS:** it copies `DocBro.app` from the `.dmg` into `/Applications` and opens it. There's no Gatekeeper prompt, because files downloaded with `curl` aren't quarantined. It may ask for your password if `/Applications` needs admin rights. To install somewhere else, put `INSTALL_DIR=~/Applications` before `bash`.
+- **Linux:** it installs the `.deb` with apt on Debian and Ubuntu, or the `.rpm` with dnf or zypper on Fedora, the RHEL family and openSUSE, and asks for your password. On other distributions it puts the `.AppImage` in `~/.local/bin/docbro` and adds a menu entry.
+- **Windows:** it runs the setup silently for your user account, so there's no administrator prompt and no SmartScreen warning.
+
+### Download the installer
+
+Or get the installer for your OS from the [latest release](https://github.com/jetorbitdev/docbro/releases/latest):
 
 | OS | File |
 |---|---|
