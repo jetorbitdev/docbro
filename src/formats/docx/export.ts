@@ -11,6 +11,7 @@ import {
   Header,
   HeadingLevel,
   HeightRule,
+  HorizontalPositionAlign,
   HorizontalPositionRelativeFrom,
   ImageRun,
   LevelFormat,
@@ -43,8 +44,9 @@ import {
 import { PAPER, TWIPS_PER_PX, type DocLook, type DocMeta, type KeptPart, type Spacing } from "../../doc/meta";
 import { fieldName } from "../../editor/field";
 import { fontName, validSize } from "../../editor/fonts";
+import { pictureAlign, pictureWidth, wrapSide } from "../../editor/pictureTools";
 import { planComments, withCommentRanges, type CommentPlan } from "./comments";
-import { MEDIA_TYPES } from "./media";
+import { MEDIA_TYPES, decodeImage } from "./media";
 
 type Block = Paragraph | Table;
 type Inline = TextRun | ExternalHyperlink | ImageRun | PageBreak | SimpleField | CommentRangeStart | CommentRangeEnd;
@@ -163,7 +165,7 @@ function partChildren(part: KeptPart, ctx: Context): Block[] {
   let pictures: Inline[] = [];
   for (const node of part.view?.content ?? []) {
     if (node.type === "image") {
-      pictures.push(image(node, ctx, true));
+      pictures.push(image(node, ctx, "left"));
     } else if ((node.type === "paragraph" || node.type === "heading") && pictures.length) {
       out.push(...block(node, ctx, false, pictures));
       pictures = [];
@@ -258,7 +260,25 @@ function numberLevels(start: number): ILevelsOptions[] {
 }
 
 function blocks(nodes: JSONContent[] | undefined, ctx: Context, quoted = false): Block[] {
-  return (nodes ?? []).flatMap((node) => block(node, ctx, quoted));
+  const out: Block[] = [];
+  // A picture with the text beside it is anchored in the line of text after it, as the page shows it: it would otherwise
+  // take a line of its own in Word.
+  let beside: Inline[] = [];
+  for (const node of nodes ?? []) {
+    const side = node.type === "image" ? wrapSide(node.attrs) : null;
+    if (side) {
+      beside.push(image(node, ctx, side));
+    } else if ((node.type === "paragraph" || node.type === "heading") && beside.length) {
+      out.push(...block(node, ctx, quoted, beside));
+      beside = [];
+    } else {
+      if (beside.length) out.push(new Paragraph({ children: beside }));
+      beside = [];
+      out.push(...block(node, ctx, quoted));
+    }
+  }
+  if (beside.length) out.push(new Paragraph({ children: beside }));
+  return out;
 }
 
 // `lead` goes in front of the text of a paragraph or heading: pictures floating beside it.
@@ -281,9 +301,14 @@ function block(node: JSONContent, ctx: Context, quoted: boolean, lead: Inline[] 
       return table(node, ctx);
     case "pageBreak":
       return [new Paragraph({ children: [new PageBreak()] })];
-    case "image":
+    case "image": {
       // a cover is pinned to the page behind the text, and the page break ends it
-      return [new Paragraph({ children: node.attrs?.cover ? [...inline([node], ctx), new PageBreak()] : inline([node], ctx) })];
+      if (node.attrs?.cover) return [new Paragraph({ children: [...inline([node], ctx), new PageBreak()] })];
+      const side = wrapSide(node.attrs);
+      if (side) return [new Paragraph({ children: [image(node, ctx, side)] })];
+      const align = pictureAlign(node.attrs);
+      return [new Paragraph({ alignment: align === "center" ? AlignmentType.CENTER : align === "right" ? AlignmentType.RIGHT : undefined, children: inline([node], ctx) })];
+    }
     default:
       return blocks(node.content, ctx, quoted);
   }
@@ -497,47 +522,8 @@ function text(node: JSONContent): TextRun | ExternalHyperlink {
   return link ? new ExternalHyperlink({ link, children: [run] }) : run;
 }
 
-type ImageType = "png" | "jpg" | "gif";
-
-// A data URL of a PNG, JPEG or GIF whose header says how big it is. Anything
-// else (a remote URL, SVG, WebP, a damaged file) has no picture in the .docx.
-function decodeImage(src: string): { type: ImageType; data: Uint8Array; width: number; height: number } | undefined {
-  const match = /^data:image\/(png|jpe?g|gif);base64,([A-Za-z0-9+/=\s]+)$/i.exec(src);
-  if (!match) return undefined;
-  const type: ImageType = match[1].toLowerCase() === "png" ? "png" : match[1].toLowerCase() === "gif" ? "gif" : "jpg";
-  let data: Uint8Array;
-  try {
-    data = Uint8Array.from(atob(match[2]), (c) => c.charCodeAt(0));
-  } catch {
-    return undefined;
-  }
-  const size = pixelSize(type, data);
-  return size && size.width > 0 && size.height > 0 ? { type, data, ...size } : undefined;
-}
-
-function pixelSize(type: ImageType, b: Uint8Array): { width: number; height: number } | undefined {
-  const be16 = (i: number) => (b[i] << 8) | b[i + 1];
-  const le16 = (i: number) => b[i] | (b[i + 1] << 8);
-  const be32 = (i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
-
-  if (type === "png") return b.length >= 24 && be32(0) === 0x89504e47 ? { width: be32(16), height: be32(20) } : undefined;
-  if (type === "gif") return b.length >= 10 && b[0] === 0x47 ? { width: le16(6), height: le16(8) } : undefined;
-
-  // JPEG: walk the segments to the first start-of-frame marker.
-  if (b[0] !== 0xff || b[1] !== 0xd8) return undefined;
-  let i = 2;
-  while (i + 9 < b.length) {
-    if (b[i] !== 0xff) return undefined;
-    const marker = b[i + 1];
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
-      return { height: be16(i + 5), width: be16(i + 7) };
-    i += 2 + Math.max(2, be16(i + 2));
-  }
-  return undefined;
-}
-
-// `float`: anchored at the left of its paragraph, with the text running down its right side.
-function image(node: JSONContent, ctx: Context, float = false): ImageRun | TextRun {
+// `float`: anchored at the left or the right of the text, with the text running down the other side.
+function image(node: JSONContent, ctx: Context, float: "left" | "right" | null = null): ImageRun | TextRun {
   const alt = typeof node.attrs?.alt === "string" && node.attrs.alt !== "" ? (node.attrs.alt as string) : undefined;
   const decoded = decodeImage(String(node.attrs?.src ?? ""));
   if (!decoded) return new TextRun(alt ?? "[image]");
@@ -557,21 +543,23 @@ function image(node: JSONContent, ctx: Context, float = false): ImageRun | TextR
       },
     });
 
-  // A size the picture was given (a header's logo) is kept; otherwise it is as big as it is, up to the text width.
-  const given = Number(node.attrs?.width) > 0 && Number(node.attrs?.height) > 0;
-  const scale = Math.min(1, ctx.imageWidth / (given ? Number(node.attrs!.width) : decoded.width));
-  const width = given ? Number(node.attrs!.width) : decoded.width;
-  const height = given ? Number(node.attrs!.height) : decoded.height;
+  // A size the picture was given is kept (its height, when it has none, follows from its shape); otherwise it is as big as
+  // it is, up to the text width.
+  const wide = pictureWidth(node.attrs?.width);
+  const tall = pictureWidth(node.attrs?.height);
+  const width = wide ?? decoded.width;
+  const height = wide && tall ? tall : (width * decoded.height) / decoded.width;
+  const scale = Math.min(1, ctx.imageWidth / width);
   return new ImageRun({
     type: decoded.type,
     data: decoded.data,
-    transformation: { width: Math.round(width * scale), height: Math.max(1, Math.round(height * scale)) },
+    transformation: { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) },
     altText: alt ? { description: alt } : undefined,
     ...(float && {
       floating: {
-        horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: 0 },
+        horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, ...(float === "right" ? { align: HorizontalPositionAlign.RIGHT } : { offset: 0 }) },
         verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: 0 },
-        wrap: { type: TextWrappingType.SQUARE, side: TextWrappingSide.RIGHT },
+        wrap: { type: TextWrappingType.SQUARE, side: float === "right" ? TextWrappingSide.LEFT : TextWrappingSide.RIGHT },
       },
     }),
   });

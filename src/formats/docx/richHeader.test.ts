@@ -99,14 +99,15 @@ test("a_header_with_several_paragraphs_a_logo_and_a_rule_is_kept_as_it_was_and_s
   expect(kept.view!.content![0].attrs).toMatchObject({ width: 137, height: 25 });
 });
 
-test("pictures_in_the_body_do_not_carry_a_size", async () => {
+test("a_picture_in_the_body_carries_the_size_it_was_drawn_at", async () => {
   const body = `<w:p>${LOGO.replace('r:embed="rId1"', 'r:embed="rIdBody"')}</w:p>`;
   const zip = await JSZip.loadAsync(await buildDocx({ document: body }));
   zip.file("word/media/logo.png", PNG);
   const rels = "word/_rels/document.xml.rels";
   zip.file(rels, (await zip.file(rels)!.async("string")).replace("</Relationships>", `<Relationship Id="rIdBody" Type="${REL}/image" Target="media/logo.png"/></Relationships>`));
   const { doc } = await importDocx(await zip.generateAsync({ type: "uint8array" }));
-  expect(doc.content![0].attrs).toMatchObject({ width: null, height: null });
+  // the picture can be sized in the body as it is in a header; the file's extent is 137 x 25 px
+  expect(doc.content![0].attrs).toMatchObject({ width: 137, height: 25, wrap: false, align: null });
 });
 
 test("a_one_line_header_is_still_the_text_zone_and_has_no_part", async () => {

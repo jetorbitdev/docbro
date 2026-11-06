@@ -100,3 +100,59 @@ test("the_sheet_at_a_point_counts_a_gap_with_the_sheet_above_and_stays_within_th
   const layout = { ...PAGE, pages: 3 };
   expect([-5, 0, 999, 1010, 1020, 2100, 9000].map((y) => sheetAt(y, layout))).toEqual([0, 0, 0, 0, 1, 2, 2]);
 });
+
+test("a_picture_with_text_beside_it_that_does_not_fit_goes_to_the_next_page_with_the_text", () => {
+  // the first block ends at 500; the picture (450 tall, no room of its own) starts at 520 and would reach 970, past the
+  // page's 950, and the paragraph beside it starts where it does: both start the next page, at 1070
+  const units: Unit[] = [
+    { top: 50, height: 450, join: 20 },
+    { top: 520, height: 0, join: 20, reach: 450 },
+    { top: 520, height: 100, join: 0 },
+  ];
+  expect(paginate(units, PAGE)).toEqual({ gaps: [{ index: 1, height: 1070 - 500 - 20 }], pages: 2 });
+});
+
+test("a_picture_with_text_beside_it_that_fits_makes_no_gap_and_takes_no_room", () => {
+  const units: Unit[] = [
+    { top: 50, height: 100, join: 20 },
+    { top: 170, height: 0, join: 20, reach: 400 },
+    { top: 170, height: 100, join: 0 },
+    { top: 290, height: 100, join: 20 },
+  ];
+  expect(paginate(units, PAGE)).toEqual({ gaps: [], pages: 1 });
+});
+
+test("a_picture_with_text_beside_it_that_is_first_on_its_page_stays_where_it_is", () => {
+  const units: Unit[] = [{ top: 50, height: 0, join: 0, reach: 2000 }, { top: 50, height: 100, join: 0 }];
+  expect(paginate(units, PAGE)).toEqual({ gaps: [], pages: 1 });
+});
+
+test("a_break_among_the_blocks_beside_a_picture_is_made_in_front_of_the_picture", () => {
+  // the picture fits (570 + 200), but the long block beside it does not: the picture goes with it, so no gap comes
+  // between them (it would change how the text wraps, and so its height)
+  const units: Unit[] = [
+    { top: 50, height: 500, join: 20 },
+    { top: 570, height: 0, join: 20, reach: 200 },
+    { top: 570, height: 1400, join: 0 },
+  ];
+  const layout = paginate(units, PAGE);
+  expect(layout.gaps).toEqual([{ index: 1, height: 1070 - 550 - 20 }]);
+  expect(layout.pages).toBe(3);
+});
+
+test("blocks_beside_a_picture_that_is_first_on_its_page_are_not_broken_either", () => {
+  const units: Unit[] = [
+    { top: 50, height: 0, join: 0, reach: 300 },
+    { top: 50, height: 1200, join: 0 },
+  ];
+  expect(paginate(units, PAGE)).toEqual({ gaps: [], pages: 2 });
+});
+
+test("a_block_past_the_reach_of_a_picture_breaks_as_any_other", () => {
+  const units: Unit[] = [
+    { top: 50, height: 0, join: 0, reach: 100 },
+    { top: 50, height: 100, join: 0 },
+    { top: 170, height: 900, join: 20 },
+  ];
+  expect(paginate(units, PAGE).gaps).toEqual([{ index: 2, height: 1070 - 150 - 20 }]);
+});

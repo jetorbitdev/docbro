@@ -2,6 +2,7 @@ import type { Node as ProseNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { paginate, type Geometry, type PageLayout, type Unit } from "../layout/pages";
+import { wrapSide } from "./pictureTools";
 
 /**
  * Lays the document out on sheets. The text stays one flow in one editor; where a page ends, a spacer as tall
@@ -45,6 +46,8 @@ export function repaginate(view: EditorView): void {
 }
 
 const isCover = (node: ProseNode) => node.type.name === "image" && !!node.attrs.cover;
+// A picture with the text running beside it floats: it is out of the flow, and the block after it starts where it does.
+const isWrapped = (node: ProseNode) => node.type.name === "image" && wrapSide(node.attrs) !== null;
 
 function gapWidget({ pos, height }: Gap, zoom: number): Decoration {
   return Decoration.widget(
@@ -168,11 +171,15 @@ class Paginator {
       const dom = view.nodeDOM(offset);
       const box = dom instanceof HTMLElement ? dom.getBoundingClientRect() : null;
       const style = dom instanceof HTMLElement ? getComputedStyle(dom) : null;
-      const margin = { top: parseFloat(style?.marginTop ?? "") || 0, bottom: parseFloat(style?.marginBottom ?? "") || 0 };
+      const wrapped = isWrapped(node);
+      const margin = wrapped
+        ? { top: 0, bottom: 0 }
+        : { top: parseFloat(style?.marginTop ?? "") || 0, bottom: parseFloat(style?.marginBottom ?? "") || 0 };
       const cover = isCover(node);
       units.push({
         top: (box?.top ?? 0) - paperTop - before,
-        height: box?.height ?? 0,
+        height: wrapped ? 0 : box?.height ?? 0,
+        ...(wrapped && { reach: box?.height ?? 0 }),
         join: lastMargin + margin.top,
         forcedBefore: cover,
         forcedAfter: cover || node.type.name === "pageBreak",

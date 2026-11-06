@@ -14,14 +14,17 @@ const PIXEL = fixtureDoc().content!.find((n) => n.type === "image")!.attrs!.src 
 const p = (): JSONContent => ({ type: "paragraph", content: [{ type: "text", text: "x" }] });
 const breakNode = (): JSONContent => ({ type: "pageBreak" });
 const cover = (): JSONContent => ({ type: "image", attrs: { src: PIXEL, alt: null, cover: true } });
+const wrapped = (): JSONContent => ({ type: "image", attrs: { src: PIXEL, alt: null, wrap: true } });
 
 let zoom = 1;
 const heightOf = (el: Element): number =>
   el.classList.contains("page-gap") ? parseFloat((el as HTMLElement).style.height) * zoom
   : el.hasAttribute("data-page-break") ? 30
   : el.hasAttribute("data-cover") ? 1000
+  : el.hasAttribute("data-wrap") ? 400
   : 100;
-const flowOf = (el: Element) => (el.hasAttribute("data-cover") ? 950 : heightOf(el));
+// a cover is pulled up over the page's margin; a picture with text beside it floats and takes none of the flow
+const flowOf = (el: Element) => (el.hasAttribute("data-cover") ? 950 : el.hasAttribute("data-wrap") ? 0 : heightOf(el));
 const rect = (top: number, height: number) =>
   ({ top, bottom: top + height, left: 0, right: 780, width: 780, height, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
 
@@ -95,6 +98,24 @@ test("a_page_break_puts_the_next_block_on_a_new_page", () => {
 test("a_cover_fills_its_page_and_the_text_starts_the_next", () => {
   const editor = make([cover(), p(), p()]);
   expect(gaps(editor).map((g) => g.style.height)).toEqual(["70px"]);
+  expect(layouts.at(-1)!.pages).toBe(2);
+});
+
+test("a_picture_with_text_beside_it_takes_no_room_of_its_own", () => {
+  // it is 400px tall but out of the flow: nine paragraphs still fill the sheet and the tenth goes to the next
+  const editor = make([wrapped(), ...Array.from({ length: 10 }, p)]);
+  expect(gaps(editor)).toHaveLength(1);
+  expect(indexOf(editor, gaps(editor)[0])).toBe(10);
+  expect(layouts.at(-1)!.pages).toBe(2);
+  const fits = make([wrapped(), ...Array.from({ length: 9 }, p)]);
+  expect(gaps(fits)).toHaveLength(0);
+});
+
+test("a_picture_with_text_beside_it_that_does_not_fit_moves_to_the_next_page_with_the_text", () => {
+  // eight paragraphs end at 850; the picture is 400 tall, so it reaches past the page's 950: it and the text beside it go on
+  const editor = make([...Array.from({ length: 8 }, p), wrapped(), p(), p()]);
+  expect(gaps(editor)).toHaveLength(1);
+  expect(indexOf(editor, gaps(editor)[0])).toBe(8); // in front of the picture, not between it and its text
   expect(layouts.at(-1)!.pages).toBe(2);
 });
 

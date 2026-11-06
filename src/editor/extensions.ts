@@ -14,6 +14,7 @@ import { CommentMark } from "./comment";
 import { Field } from "./field";
 import { firstFamily, fontName, fontStack, sizeOf, sizeStyle, validSize } from "./fonts";
 import { PageBreak } from "./pageBreak";
+import { PictureTools, pictureAttributes } from "./pictureTools";
 import { SizedRow, TableTools } from "./tableTools";
 import { REMOTE_SRC, loadsInPage, remotePicture } from "./pictureSource";
 
@@ -82,11 +83,13 @@ const Typesize = Extension.create({
 });
 
 // A picture that is a whole page of its own: a cover. Word pins it to the page behind the text; here it fills
-// its sheet edge to edge and the next block starts on a new page (layout/pagination.ts).
+// its sheet edge to edge and the next block starts on a new page (layout/pagination.ts). Otherwise it has the size,
+// the place on its line and the wrapping of the text that editor/pictureTools.ts sets.
 const CoverImage = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      ...pictureAttributes,
       cover: {
         default: false,
         parseHTML: (element: HTMLElement) => element.hasAttribute("data-cover"),
@@ -274,6 +277,7 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     FilledHeader,
     FilledCell,
     CoverImage.configure({ allowBase64: true, inline: false }),
+    PictureTools,
     PageBreak,
     Field,
     Markdown,

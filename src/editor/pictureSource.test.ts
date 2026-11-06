@@ -76,7 +76,7 @@ test("a_picture_in_the_document_or_made_by_the_page_still_renders", () => {
 
 test("a_picture_from_the_web_keeps_its_address_in_the_document", () => {
   const editor = make(image(REMOTE, "Quarterly chart", { title: "Q3" }));
-  expect(editor.getJSON().content).toEqual([image(REMOTE, "Quarterly chart", { title: "Q3", width: null, height: null, cover: false })]);
+  expect(editor.getJSON().content).toEqual([image(REMOTE, "Quarterly chart", { title: "Q3", width: null, height: null, cover: false, align: null, wrap: false })]);
 });
 
 test("a_picture_inserted_by_a_command_is_not_loaded_either", () => {

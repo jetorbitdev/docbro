@@ -128,7 +128,7 @@ DocBro is not Word, so it reads a `.docx` into the parts its editor has, and wri
 - **Text.** Paragraphs, headings 1 to 3 (Word's Title style becomes heading 1), block quotes, bulleted and numbered lists with their levels, line breaks, page breaks and dividers.
 - **Formatting.** Bold, italic, underline, strikethrough, text color, highlight, links, and the typeface of text that isn't in the body's typeface. Paragraph alignment, spacing and first-line indent.
 - **Tables.** Rows, columns, merged cells, column widths, row heights, cell fill and the table's indent.
-- **Pictures.** PNG, JPEG and GIF pictures in the text. A picture that fills a whole page, such as a cover, gets a sheet of its own.
+- **Pictures.** PNG, JPEG and GIF pictures in the text, with the size they were drawn at, where they sit (left, center or right) and text wrapped beside them. A picture that fills a whole page, such as a cover, gets a sheet of its own.
 - **Page.** Letter or A4 paper, the margins, and the file's own type and spacing for the body and the three heading levels, so pages break about where Word's do.
 - **Headers and footers.** The default header and footer of the file's last section, including page numbers and fields such as `PAGE` and `NUMPAGES`. One that is a single plain line is edited as text. A richer one, with several paragraphs, pictures or a rule, is shown on the sheet, can be edited there, and is written back as the file had it until you edit it.
 - **Comments.** Word comments with their author, date, text and the text they sit on. DocBro writes new ones back as Word comments.
@@ -535,6 +535,7 @@ _November 2, 2026_
 - feat: Headings, lists, tables, images, links, quotes, dividers, text color, highlight and alignment
 - feat: Add and delete table rows and columns
 - feat: A table toolbar over the table in the caret to add and delete rows and columns, merge and split cells, set the header row, and type a column width or row height, with drag-to-resize on row borders and equal column widths; row heights are kept in .docx files
+- feat: An image toolbar over the selected image to set its layout (in line, text wrapped beside it, or a cover page), its position (left, center or right) and its size, typed, as a share of the text width, or dragged by the corner; size, position and wrapping are kept in .docx files
 - feat: Choose a font for the selected text, kept in .docx files
 - feat: Comments on selected text, saved as Word comments
 - feat: Slash menu, selection bubble and a bottom dock for inserting and formatting

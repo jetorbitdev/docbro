@@ -171,6 +171,15 @@ button,textarea{font-family:inherit}
 .doc img[data-cover]{display:block;max-width:none;width:calc(100% + 2*var(--pad-x));height:var(--page-h,auto);margin:calc(-1*var(--pad-y)) calc(-1*var(--pad-x)) 0;border-radius:6px}
 /* the text is zoomed, the sheet is not: the cover undoes the zoom so it is the sheet's size on screen */
 .doc.large img[data-cover]{zoom:.8333}
+/* where a picture sits on its line, and the text beside one that is wrapped (editor/pictureTools.ts) */
+.doc img[data-align]{display:block}
+.doc img[data-align=center]{margin-left:auto;margin-right:auto}
+.doc img[data-align=right]{margin-left:auto}
+.doc img[data-wrap]{float:left;margin:4px 16px 8px 0}
+.doc img[data-wrap][data-align=right]{float:right;margin:4px 0 8px 16px}
+/* the page runs as far as a picture with text beside it does, so one at the end does not hang over the page's foot */
+.doc .ProseMirror:has(>img[data-wrap]){display:flow-root}
+.doc img.ProseMirror-selectednode{outline:2px solid var(--accent-ink);outline-offset:2px}
 /* a picture that points at the web is never fetched: its alt text and its address are drawn in its place */
 .remote-image{display:inline-block;max-width:100%;vertical-align:top;padding:6px 10px;border:1px dashed var(--line2);border-radius:6px;background:var(--soft);font-family:var(--font);font-size:12px;line-height:1.4;font-style:normal;font-weight:400;text-align:left;user-select:text}
 .remote-image-alt{display:block;color:var(--ink2)}
@@ -333,6 +342,11 @@ button,textarea{font-family:inherit}
 .tbar-size input::placeholder{color:currentColor;opacity:.45}
 .tbar-size input::-webkit-inner-spin-button,.tbar-size input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .tbar-size .unit{font-weight:400;opacity:.55}
+/* picture tools (layout/ImageBar.tsx): the table bar's look, and a handle on the corner of the picture to drag its size */
+.imagebar button.text{font-size:12px;font-weight:500;padding:0 8px}
+.imagebar button.share{font-size:11.5px;min-width:0;padding:0 6px}
+.image-handle{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;box-sizing:border-box;border:2px solid var(--surface);border-radius:4px;background:var(--accent-ink);box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:nwse-resize;touch-action:none;z-index:4}
+.image-handle.left{cursor:nesw-resize}
 .bubble .sep{width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px}
 .swatch-hl{width:14px;height:14px;border-radius:3px;background:#f3dc6b}
 .swatch-hl.ringed{border:1px solid var(--hl-line)}

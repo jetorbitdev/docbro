@@ -228,9 +228,10 @@ test("reads_pictures_by_their_extension_and_skips_formats_a_browser_cannot_show"
   const { doc: result, dropped } = await importDocx(bytes);
   expect(result).toEqual(normalize(doc(
     para(t("teks ")),
-    { type: "image", attrs: { src: `data:image/jpeg;base64,${Buffer.from(jpeg).toString("base64")}`, alt: "Foto" } },
+    // these are not pictures a browser could measure, so the 1 x 1 px they were drawn at is kept
+    { type: "image", attrs: { src: `data:image/jpeg;base64,${Buffer.from(jpeg).toString("base64")}`, alt: "Foto", width: 1, height: 1 } },
     para(t(" lanjut")),
-    { type: "image", attrs: { src: "data:image/gif;base64,R0lG", alt: null } },
+    { type: "image", attrs: { src: "data:image/gif;base64,R0lG", alt: null, width: 1, height: 1 } },
     { type: "paragraph" },
   )));
   expect(dropped).toEqual(["other_content"]);

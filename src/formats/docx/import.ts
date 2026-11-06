@@ -6,7 +6,7 @@ import { isAutomaticColor } from "../../editor/automaticColor";
 import { createExtensions } from "../../editor/extensions";
 import { fontName, validSize } from "../../editor/fonts";
 import { commentEdge, commentWalk, openCommentMarks, settleComments, wordComments, type CommentWalk } from "./comments";
-import { MEDIA_TYPES } from "./media";
+import { MEDIA_TYPES, decodeImage } from "./media";
 import { NS, attr, children, descendants, first, is, parseXml } from "./xml";
 
 // "comments" is every comment, from a comments part that could not be read; the other two are the comments DocBro
@@ -898,10 +898,15 @@ function paragraph(p: Element, ctx: Context): Item[] {
     if (run.length || always) items.push({ node: textBlock(run), quote: kind.type === "quote", list: items.length ? undefined : list, indent });
     run = [];
   };
+  // A picture in a centered or right-aligned line is set so; one that was anchored brings its own place.
+  const setLike = (piece: JSONContent): JSONContent =>
+    piece.type === "image" && !ctx.part && (textAlign === "center" || textAlign === "right") && !piece.attrs?.cover && !piece.attrs?.align && !piece.attrs?.wrap
+      ? { ...piece, attrs: { ...piece.attrs, align: textAlign } }
+      : piece;
   for (const piece of pieces) {
     if (piece.type === "image" || piece.type === "horizontalRule" || piece.type === "pageBreak") {
       flush(false);
-      items.push({ node: piece });
+      items.push({ node: setLike(piece) });
     } else run.push(piece);
   }
   flush(items.length === 0);
@@ -1050,7 +1055,23 @@ function runText(t: Element): string {
 function drawing(el: Element, ctx: Context, out: JSONContent[]): void {
   const blip = descendants(el, "a:blip")[0];
   if (attr(descendants(el, "a:graphicData")[0], "uri") !== PICTURE || !blip) return void ctx.dropped.add("other_content"); // shape, chart, group, …
-  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, isCover(el, ctx.page), ctx.part ? drawnSize(el) : null);
+  const cover = isCover(el, ctx.page);
+  // A kept header or footer is drawn by its own rules (PartView); a cover is as big as its page.
+  const own = !cover && !ctx.part;
+  picture(attr(blip, "r:embed"), attr(descendants(el, "wp:docPr")[0], "descr") || null, ctx, out, cover, cover ? null : drawnSize(el), own ? placement(el) : {});
+}
+
+// Where a drawing sits, from its anchor: at the left or the right of the text with the text running beside it, or set
+// to the center or the right of a line of its own. A picture in a line of text (`wp:inline`) is set by its paragraph.
+function placement(drawing: Element): { align?: "center" | "right"; wrap?: true } {
+  const anchor = descendants(drawing, "wp:anchor")[0];
+  if (!anchor) return {};
+  const set = first(first(anchor, "wp:positionH"), "wp:align")?.textContent?.trim();
+  const beside = ["wp:wrapSquare", "wp:wrapTight", "wp:wrapThrough"].map((name) => first(anchor, name)).find(Boolean);
+  // text kept to the left of the picture puts it at the right, whatever else the anchor says
+  const align = set === "center" || set === "right" ? set : attr(beside ?? null, "wrapText") === "left" ? "right" : undefined;
+  if (beside && align !== "center") return { wrap: true, ...(align && { align }) };
+  return align ? { align } : {};
 }
 
 // The size a drawing was given, in px (9525 EMU to the px).
@@ -1079,9 +1100,15 @@ function pict(el: Element, ctx: Context, out: JSONContent[]): void {
   else ctx.dropped.add("other_content");
 }
 
-function picture(id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false, size: { width: number; height: number } | null = null): void {
+function picture(
+  id: string | null, alt: string | null, ctx: Context, out: JSONContent[], cover = false,
+  size: { width: number; height: number } | null = null, place: { align?: "center" | "right"; wrap?: true } = {},
+): void {
   const src = id ? ctx.images.get(id) : null;
-  if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }), ...size } });
+  // A drawing as big as its picture is, which is what a file written without a size of its own has, is not given one.
+  const natural = src && size && !ctx.part ? decodeImage(src) : undefined;
+  const sized = natural && natural.width === size!.width && natural.height === size!.height ? null : size;
+  if (src) out.push({ type: "image", attrs: { src, alt, ...(cover && { cover }), ...sized, ...place } });
   else if (src === null) ctx.dropped.add("other_content"); // linked from outside the file, or BMP/WebP/EMF/TIFF/…
 }
 
