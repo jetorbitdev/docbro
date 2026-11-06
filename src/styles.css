@@ -29,6 +29,9 @@ button,textarea{font-family:inherit}
 .doc table[style^="width"] th,.doc table[style^="width"] td{overflow-wrap:anywhere}
 .doc .column-resize-handle{position:absolute;right:-2px;top:0;bottom:-2px;width:4px;background:var(--accent-ink);pointer-events:none;z-index:2}
 .doc .resize-cursor,.doc .resize-cursor *{cursor:col-resize}
+/* a row's bottom border dragged up or down (editor/rowResize.ts); the row's cells show the border that is held */
+.doc .row-resize-cursor,.doc .row-resize-cursor *{cursor:row-resize}
+.doc tr.row-resize-hover>td,.doc tr.row-resize-hover>th,.doc tr.row-resizing>td,.doc tr.row-resizing>th{box-shadow:inset 0 -2px 0 var(--accent-ink)}
 .doc mark{background:var(--hl);color:inherit;border-radius:2px;padding:0 1px}
 .doc mark[data-c]{box-shadow:inset 0 -2px 0 var(--hl-line);cursor:pointer}
 .doc .comment-hover{background:var(--hl-line)}
@@ -314,6 +317,22 @@ button,textarea{font-family:inherit}
 .bubble .strong{font-weight:600}
 .bubble .quote{font-size:16px;font-family:var(--font)}
 .bubble .comment{padding:0 10px}
+
+/* table tools (layout/TableBar.tsx): over the top edge of the table the caret is in, centered on the page */
+.tablebar{position:absolute;left:0;right:0;margin:0 auto;width:max-content;transform:translateY(-100%);display:flex;align-items:center;flex-wrap:wrap;justify-content:center;gap:2px;max-width:calc(100% - 16px);padding:4px;background:var(--pill);color:var(--pill-ink);border-radius:10px;box-shadow:0 8px 24px -8px rgba(0,0,0,.35);z-index:4;font-family:var(--font)}
+.tablebar button{min-width:30px;height:30px;padding:0 6px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;white-space:nowrap}
+.tablebar button:hover:not(:disabled),.tablebar button.on{background:var(--pill-hover)}
+.tablebar button:disabled{opacity:.4;cursor:default}
+.tablebar button.danger:hover:not(:disabled){background:#b4352f;color:#fff}
+.tablebar .sep{width:1px;height:18px;background:currentColor;opacity:.2;margin:0 4px}
+.tbar-group{display:flex;align-items:center;gap:2px}
+.tbar-label{font-size:11px;opacity:.6;margin:0 4px 0 2px}
+.tbar-size{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;margin:0 4px 0 2px}
+.tbar-size input{width:58px;height:26px;padding:0 4px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:6px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;font-size:12.5px;font-weight:400;text-align:center;outline:none;-moz-appearance:textfield}
+.tbar-size input:focus{border-color:currentColor;background:color-mix(in srgb,currentColor 14%,transparent)}
+.tbar-size input::placeholder{color:currentColor;opacity:.45}
+.tbar-size input::-webkit-inner-spin-button,.tbar-size input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.tbar-size .unit{font-weight:400;opacity:.55}
 .bubble .sep{width:1px;height:18px;background:currentColor;opacity:.2;margin:0 3px}
 .swatch-hl{width:14px;height:14px;border-radius:3px;background:#f3dc6b}
 .swatch-hl.ringed{border:1px solid var(--hl-line)}

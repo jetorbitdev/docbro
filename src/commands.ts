@@ -1,5 +1,6 @@
 import type { ChainedCommands, Editor } from "@tiptap/core";
 import type { DocSession } from "./doc/session";
+import { hasHeaderRow } from "./editor/tableTools";
 import { applyBlock, type BlockKey } from "./layout/blocks";
 import { roomForComments, toggleOutline, viewportLayout, type UiState } from "./layout/viewport";
 import { currentTheme, toggleTheme } from "./theme";
@@ -43,7 +44,7 @@ export const COMMAND_IDS: string[] = [
   "undo", "redo", "clear_format", "find", "replace", "select_all",
   "focus", "outline", "comments", "assistant", "dark_mode", "larger_text", "sans_font", "palette",
   "table", "image", "link", "divider", "page_break", "comment", "header", "footer", "page_numbers",
-  "column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "table_delete",
+  "column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "cell_merge", "cell_split", "header_row", "equal_columns", "table_delete",
   "text", "h1", "h2", "h3", "quote", "ul", "ol",
   "bold", "italic", "underline", "strike", "highlight", "font", "color",
   "align_left", "align_center", "align_right", "align_justify",
@@ -116,6 +117,10 @@ export function buildCommands(host: CommandHost): Command[] {
     cmd("row_before", "Insert", "▤", "Add row above", "", edit((c) => c.addRowBefore())),
     cmd("row_after", "Insert", "▤", "Add row below", "", edit((c) => c.addRowAfter())),
     cmd("row_delete", "Insert", "▤", "Delete row", "", edit((c) => c.deleteRow())),
+    cmd("cell_merge", "Insert", "⊞", "Merge cells", "", edit((c) => c.mergeCells())),
+    cmd("cell_split", "Insert", "⊟", "Split cell", "", edit((c) => c.splitCell())),
+    cmd("header_row", "Insert", "▤", "Header row", "", edit((c) => c.toggleHeaderRow()), hasHeaderRow(editor)),
+    cmd("equal_columns", "Insert", "▥", "Equal column widths", "", edit((c) => c.equalColumns())),
     cmd("table_delete", "Insert", "▦", "Delete table", "", edit((c) => c.deleteTable())),
 
     cmd("text", "Format", "T", "Normal text", "⌥⌘0", block("p")),

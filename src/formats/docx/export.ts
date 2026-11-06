@@ -10,6 +10,7 @@ import {
   Footer,
   Header,
   HeadingLevel,
+  HeightRule,
   HorizontalPositionRelativeFrom,
   ImageRun,
   LevelFormat,
@@ -382,6 +383,8 @@ function table(node: JSONContent, ctx: Context): Block[] {
         new TableRow({
           // Left unset for a body row: `docx` would write `w:tblHeader w:val="off"` for false.
           tableHeader: row.content!.every((cell) => cell.type === "tableHeader") ? true : undefined,
+          // a row height set in the editor is a minimum, as Word's "at least"
+          height: Number(row.attrs?.height) > 0 ? { value: Math.round(Number(row.attrs!.height) * TWIPS_PER_PX), rule: HeightRule.ATLEAST } : undefined,
           children: row.content!.map((cell) => {
             const children = blocks(cell.content, ctx) as (Paragraph | Table)[];
             if (children.length === 0 || children[children.length - 1] instanceof Table) children.push(new Paragraph({}));

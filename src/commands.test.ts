@@ -166,6 +166,8 @@ const tableShape = () => {
   return table ? table.content!.map((row) => row.content!.length) : null;
 };
 
+const tableRows = () => (editor.getJSON() as JSONContent).content!.find((n) => n.type === "table")!.content!;
+
 test("table_commands_add_and_remove_columns_rows_and_the_table", () => {
   tableWithCaretInFirstCell();
   expect(tableShape()).toEqual([3, 3, 3]);
@@ -188,9 +190,25 @@ test("table_commands_add_and_remove_columns_rows_and_the_table", () => {
   expect(tableShape()).toBeNull();
 });
 
+test("table_commands_merge_split_and_make_the_first_row_a_header_or_the_columns_equal", () => {
+  tableWithCaretInFirstCell();
+  expect(byId(host(), "header_row").state).toBe("On"); // the new table has a header row
+  byId(host(), "header_row").run();
+  expect(byId(host(), "header_row").state).toBe("");
+  expect(tableRows()[0].content![0].type).toBe("tableCell");
+
+  byId(host(), "equal_columns").run();
+  const widths = tableRows()[1].content!.map((c) => c.attrs!.colwidth);
+  expect(widths).toEqual([[200], [200], [200]]);
+
+  // nothing is merged yet, so there is nothing to split
+  byId(host(), "cell_split").run();
+  expect(tableShape()).toEqual([3, 3, 3]);
+});
+
 test("table_commands_leave_the_document_alone_outside_a_table", () => {
   const before = JSON.stringify(editor.getJSON());
-  for (const id of ["column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "table_delete"]) {
+  for (const id of ["column_before", "column_after", "column_delete", "row_before", "row_after", "row_delete", "cell_merge", "cell_split", "header_row", "equal_columns", "table_delete"]) {
     expect(() => byId(host(), id).run()).not.toThrow();
   }
   expect(JSON.stringify(editor.getJSON())).toBe(before);

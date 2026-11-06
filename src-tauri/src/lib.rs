@@ -436,6 +436,11 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&MenuItemBuilder::with_id("row_after", "Add row below").build(app)?)
         .item(&MenuItemBuilder::with_id("row_delete", "Delete row").build(app)?)
         .separator()
+        .item(&MenuItemBuilder::with_id("cell_merge", "Merge cells").build(app)?)
+        .item(&MenuItemBuilder::with_id("cell_split", "Split cell").build(app)?)
+        .item(&MenuItemBuilder::with_id("header_row", "Header row").build(app)?)
+        .item(&MenuItemBuilder::with_id("equal_columns", "Equal column widths").build(app)?)
+        .separator()
         .item(&MenuItemBuilder::with_id("table_delete", "Delete table").build(app)?)
         .build()?;
     let format = SubmenuBuilder::new(app, "Format")

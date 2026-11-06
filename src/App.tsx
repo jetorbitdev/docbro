@@ -26,6 +26,7 @@ import { McpSettings } from "./layout/McpSettings";
 import { Paper } from "./layout/Paper";
 import { ColorPopover, FontPopover, LinkPopover } from "./layout/Popovers";
 import { SelectionBubble } from "./layout/SelectionBubble";
+import { TableBar } from "./layout/TableBar";
 import { SlashMenu } from "./layout/SlashMenu";
 import { TopBar } from "./layout/TopBar";
 import { useReadingAnchor } from "./layout/useReadingAnchor";
@@ -384,6 +385,7 @@ export default function App() {
                   run={run}
                   onComment={comment?.enabled ? comment.run : undefined}
                 />
+                <TableBar editor={target} paper={paper} scroller={scroller} suspended={paletteOpen || settingsOpen} run={run} />
                 <SlashMenu editor={editor} paper={paper} suspended={paletteOpen || settingsOpen} />
                 {popover === "link" && <LinkPopover editor={target} paper={paper} onClose={closePopover} />}
                 {popover === "color" && <ColorPopover editor={target} paper={paper} onClose={closePopover} />}

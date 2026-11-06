@@ -2,7 +2,7 @@ import { Extension, type Extensions } from "@tiptap/core";
 import { Highlight } from "@tiptap/extension-highlight";
 import { Image } from "@tiptap/extension-image";
 import { Strike } from "@tiptap/extension-strike";
-import { Table, TableCell, TableHeader, TableRow, TableView } from "@tiptap/extension-table";
+import { Table, TableCell, TableHeader, TableView } from "@tiptap/extension-table";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { Color, FontFamily, TextStyle } from "@tiptap/extension-text-style";
 import { Markdown } from "@tiptap/markdown";
@@ -14,6 +14,7 @@ import { CommentMark } from "./comment";
 import { Field } from "./field";
 import { firstFamily, fontName, fontStack, sizeOf, sizeStyle, validSize } from "./fonts";
 import { PageBreak } from "./pageBreak";
+import { SizedRow, TableTools } from "./tableTools";
 import { REMOTE_SRC, loadsInPage, remotePicture } from "./pictureSource";
 
 // Pasted text brings its source's black or white as a color mark, and a mark stays where a theme change would
@@ -268,7 +269,8 @@ export function createExtensions({ trailingNode = true }: { trailingNode?: boole
     Highlight.configure({ multicolor: true }),
     CommentMark,
     IndentedTable.configure({ resizable: true, View: IndentedTableView }),
-    TableRow,
+    SizedRow,
+    TableTools,
     FilledHeader,
     FilledCell,
     CoverImage.configure({ allowBase64: true, inline: false }),

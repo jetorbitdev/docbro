@@ -1128,7 +1128,11 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
       col += span;
       return cell;
     });
-    return cells.length ? [{ header: toggle(first(trPr, "w:tblHeader")), cells }] : [];
+    // "auto" is as tall as the content; "atLeast" (the default) and "exact" give the height
+    const trHeight = first(trPr, "w:trHeight");
+    const twips = attr(trHeight, "w:hRule") === "auto" ? null : int(attr(trHeight, "w:val"));
+    const height = twips && twips > 0 ? Math.round(twips / TWIPS_PER_PX) : null;
+    return cells.length ? [{ header: toggle(first(trPr, "w:tblHeader")), height, cells }] : [];
   });
 
   // A vertical merge is a "restart" cell and the "continue" cells below it in the same grid column.
@@ -1146,6 +1150,7 @@ function table(tbl: Element, ctx: Context): JSONContent | null {
 
   const content = rows.map((row) => ({
     type: "tableRow",
+    ...(row.height && { attrs: { height: row.height } }),
     content: row.cells.filter((c) => !c.covered).map((c) => ({
       type: row.header ? "tableHeader" : "tableCell",
       attrs: { colspan: c.span, rowspan: c.rowspan, colwidth: c.colwidth, ...(c.background && { background: c.background }) },

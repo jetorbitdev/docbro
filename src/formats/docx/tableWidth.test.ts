@@ -95,3 +95,33 @@ test("dragged_widths_survive_a_save_and_reopen", async () => {
   expect(doc).toEqual(normalize(original));
   expect(dropped).toEqual([]);
 });
+
+// ---------------------------------------------------------------- row heights
+
+const tall = (height: number | null): JSONContent => ({
+  type: "tableRow",
+  ...(height && { attrs: { height } }),
+  content: [cell("a", null)],
+});
+const docOf = (...rows: JSONContent[]): JSONContent => ({ type: "doc", content: [{ type: "table", content: rows }] });
+
+test("a_row_height_is_written_as_a_minimum_in_twips_and_read_back", async () => {
+  const xml = await bodyXml(docOf(tall(40), tall(null)));
+  const heights = tag(xml, "w:trHeight");
+  expect(heights.map((t) => [attrOf(t, "w:val"), attrOf(t, "w:hRule")])).toEqual([["600", "atLeast"]]);
+
+  const { doc } = await importDocx(await exportDocx(docOf(tall(40), tall(null))));
+  expect(doc.content![0].content!.map((row) => row.attrs?.height ?? null)).toEqual([40, null]);
+});
+
+test("a_row_height_from_word_is_read_unless_the_row_is_auto", async () => {
+  const row = (trPr: string) => `<w:tr><w:trPr>${trPr}</w:trPr><w:tc><w:tcPr/><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc></w:tr>`;
+  const body = `<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>${[
+    row('<w:trHeight w:val="900"/>'),
+    row('<w:trHeight w:val="900" w:hRule="exact"/>'),
+    row('<w:trHeight w:val="900" w:hRule="auto"/>'),
+    row(""),
+  ].join("")}</w:tbl>`;
+  const { doc } = await importDocx(await buildDocx({ document: body }));
+  expect(doc.content![0].content!.map((r) => r.attrs?.height ?? null)).toEqual([60, 60, null, null]);
+});
