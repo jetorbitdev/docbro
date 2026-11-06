@@ -9,3 +9,5 @@ src-tauri/gen
 .playwright-mcp/
 CLAUDE.md
 bun.lock
+# Promo video project (local only)
+video/
